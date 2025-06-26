@@ -26,6 +26,8 @@ with tabs[1]:
     df = None
     columns = []
     date_col = target_col = freq = fillna_method = None
+    detected_freq = "D"
+    aggregation_method = "sum"
     yearly_seasonality = weekly_seasonality = daily_seasonality = False
     seasonality_mode = "additive"
     changepoint_prior_scale = 0.05
@@ -47,27 +49,36 @@ with tabs[1]:
             df = pd.read_csv(file, delimiter=delimiter)
             columns = df.columns.tolist()
 
-            st.header("2. Preparazione dati")
+            st.header("2. Columns")
             date_col = st.selectbox("Colonna data", options=columns)
             target_col = st.selectbox("Colonna target", options=columns)
 
-            freq = st.selectbox("Frequenza della serie temporale", ["D", "W", "M"], index=0)
-            fillna_method = st.selectbox("Metodo per valori mancanti", ["drop", "zero", "interpolate"], index=0)
+            st.header("3. Granularità")
+            try:
+                df[date_col] = pd.to_datetime(df[date_col], format=date_format)
+                df_sorted = df.sort_values(by=date_col)
+                inferred = pd.infer_freq(df_sorted[date_col])
+                detected_freq = inferred if inferred else "D"
+            except:
+                detected_freq = "D"
+            st.text(f"Granularità rilevata: {detected_freq}")
+            freq = st.selectbox("Seleziona una nuova granularità", ["D", "W", "M"], index=["D", "W", "M"].index(detected_freq) if detected_freq in ["D", "W", "M"] else 0)
+            aggregation_method = st.selectbox("Metodo di aggregazione", ["sum", "mean", "max", "min"])
 
-            st.header("3. Parametri Prophet")
+            st.header("4. Parametri Prophet")
             yearly_seasonality = st.checkbox("Stagionalità annuale", value=True)
             weekly_seasonality = st.checkbox("Stagionalità settimanale", value=True)
             daily_seasonality = st.checkbox("Stagionalità giornaliera", value=False)
             seasonality_mode = st.selectbox("Seasonality mode", ["additive", "multiplicative"])
             changepoint_prior_scale = st.slider("Changepoint prior scale", 0.001, 0.5, 0.05)
 
-            st.header("4. Orizzonte di forecast")
+            st.header("5. Orizzonte di forecast")
             periods_input = st.number_input("Inserisci il numero di periodi da prevedere", min_value=1, max_value=365, value=30)
 
-            st.header("5. Opzioni avanzate")
+            st.header("6. Opzioni avanzate")
             use_holidays = st.checkbox("Includi festività italiane", value=False)
 
-            st.header("6. Esegui")
+            st.header("7. Esegui")
             launch_forecast = st.button("🚀 Avvia il forecast")
 
     if df is not None:
@@ -76,13 +87,16 @@ with tabs[1]:
         df[date_col] = pd.to_datetime(df[date_col], format=date_format)
         df = df[[date_col, target_col]].dropna()
 
-        if fillna_method == "zero":
-            df[target_col] = df[target_col].fillna(0)
-        elif fillna_method == "interpolate":
-            df[target_col] = df[target_col].interpolate()
+        if aggregation_method == "sum":
+            df = df.groupby(date_col).sum().reset_index()
+        elif aggregation_method == "mean":
+            df = df.groupby(date_col).mean().reset_index()
+        elif aggregation_method == "max":
+            df = df.groupby(date_col).max().reset_index()
+        elif aggregation_method == "min":
+            df = df.groupby(date_col).min().reset_index()
 
         df = df.rename(columns={date_col: "ds", target_col: "y"})
-        df = df.groupby("ds").sum().reset_index()
         df = df.set_index("ds").asfreq(freq).reset_index()
 
         if launch_forecast:
