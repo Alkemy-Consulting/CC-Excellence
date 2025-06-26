@@ -20,7 +20,7 @@ st.title("📈 Contact Center Forecasting Tool")
 with st.sidebar:
     st.header("1. Data")
     with st.expander("📂 Dataset"):
-        delimiter = st.selectbox("Delimitatore CSV", [",", ";", "|", "\t"], index=0)
+        delimiter = st.selectbox("Delimitatore CSV", [",", ";", "|", "	"], index=0)
         user_friendly_format = st.selectbox("Formato data", [
             "gg/mm/aaaa", "gg/mm/aa", "aaaa-mm-gg",
             "mm/gg/aaaa", "gg.mm.aaaa", "aaaa/mm/gg"
