@@ -19,8 +19,8 @@ st.title("📈 Contact Center Forecasting Tool")
 
 # Sidebar comune
 with st.sidebar:
-    st.header("1. Data")
-    with st.expander("📂 Dataset"):
+    st.header("1. Dataset")
+    with st.expander("📂 File import"):
         delimiter = st.selectbox("Delimitatore CSV", [",", ";", "|", "\t"], index=0)
         user_friendly_format = st.selectbox("Formato data", [
             "gg/mm/aaaa", "gg/mm/aa", "aaaa-mm-gg",
@@ -44,7 +44,7 @@ with st.sidebar:
         df = pd.read_csv(file, delimiter=delimiter)
         columns = df.columns.tolist()
 
-        with st.expander("🧹 Columns"):
+        with st.expander("🧹 Colonne"):
             date_col = st.selectbox("Colonna data", options=columns)
             target_col = st.selectbox("Colonna target", options=columns, index=1 if len(columns) > 1 else 0)
 
@@ -94,7 +94,7 @@ with st.sidebar:
                 default=["MAPE", "MAE", "RMSE"]
             )
 
-        with st.expander("🗓️ Scope"):
+        with st.expander("🗓️ Intervalli"):
             st.write("(Periodo o finestra di validazione)")
             aggregate_scope = st.checkbox("Valuta le performance su valori aggregati")
 
