@@ -71,27 +71,29 @@ with st.sidebar:
         st.header("3. Backtesting")
         with st.expander("⚙️ Impostazioni Backtest"):
             with st.container():
-            st.subheader("📊 Split")
-            use_cv = st.checkbox("Usa Cross-Validation")
-            if use_cv:
-                col1, col2 = st.columns(2)
-                with col1:
-                    cv_start_date = st.date_input("Data inizio CV")
-                with col2:
-                    cv_end_date = st.date_input("Data fine CV")
-                n_folds = st.number_input("Numero di folds", min_value=2, max_value=20, value=5)
-                fold_horizon = st.number_input("Orizzonte per fold (in periodi)", min_value=1, value=30)
+                st.subheader("📊 Split")
+                use_cv = st.checkbox("Usa Cross-Validation")
+                if use_cv:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        cv_start_date = st.date_input("Data inizio CV")
+                    with col2:
+                        cv_end_date = st.date_input("Data fine CV")
+                    n_folds = st.number_input("Numero di folds", min_value=2, max_value=20, value=5)
+                    fold_horizon = st.number_input("Orizzonte per fold (in periodi)", min_value=1, value=30)
+
             with st.container():
-            st.subheader("📏 Metriche")
-            selected_metrics = st.multiselect(
-                "Seleziona le metriche di valutazione",
-                options=["MAPE", "MAE", "MSE", "RMSE", "SMAPE"],
-                default=["MAPE", "MAE", "RMSE"]
-            )
+                st.subheader("📏 Metriche")
+                selected_metrics = st.multiselect(
+                    "Seleziona le metriche di valutazione",
+                    options=["MAPE", "MAE", "MSE", "RMSE", "SMAPE"],
+                    default=["MAPE", "MAE", "RMSE"]
+                )
+
             with st.container():
-            st.subheader("🗓️ Scope")
-            st.write("(Periodo o finestra di validazione)")
-            aggregate_scope = st.checkbox("Valuta le performance su valori aggregati")
+                st.subheader("🗓️ Scope")
+                st.write("(Periodo o finestra di validazione)")
+                aggregate_scope = st.checkbox("Valuta le performance su valori aggregati")
 
         st.header("4. Forecast")
         with st.expander("📅 Parametri Forecast"):
