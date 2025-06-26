@@ -24,7 +24,7 @@ with st.sidebar:
         user_friendly_format = st.selectbox("Formato data", [
             "gg/mm/aaaa", "gg/mm/aa", "aaaa-mm-gg",
             "mm/gg/aaaa", "gg.mm.aaaa", "aaaa/mm/gg"
-        ], index=0)
+        ], index=1)
         format_map = {
             "gg/mm/aaaa": "%d/%m/%Y",
             "gg/mm/aa": "%d/%m/%y",
@@ -45,7 +45,7 @@ with st.sidebar:
 
         with st.expander("🧩 Columns"):
             date_col = st.selectbox("Colonna data", options=columns)
-            target_col = st.selectbox("Colonna target", options=columns)
+            target_col = st.selectbox("Colonna target", options=columns, index=1 if len(columns) > 1 else 0)
 
         with st.expander("⏱️ Granularità"):
             try:
