@@ -93,7 +93,7 @@ with st.sidebar:
                 q = st.number_input("Parametro q (media mobile)", min_value=0, max_value=5, value=1)
                 periods_input = st.number_input("Orizzonte di forecast (periodi)", min_value=1, max_value=365, value=30)
 
-        launch_forecast = st.button("🚀 Avvia il f
+        launch_forecast = st.button("🚀 Avvia il forecast")
 
 if file and launch_forecast:
     df[date_col] = pd.to_datetime(df[date_col], format=date_format)
