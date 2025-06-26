@@ -1,14 +1,18 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import sys
+import os
+
+# Aggiungi il path al modulo personalizzato
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'modules')))
+
 from prophet_module import (
     build_prophet_model,
     evaluate_forecast,
     plot_forecast,
     plot_components
 )
-
-st.title("📈 Contact Center Forecasting Tool")
 
 tab_names = ["Exploratory", "Prophet", "ARIMA", "Holt-Winters"]
 tabs = st.tabs(tab_names)
