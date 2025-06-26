@@ -67,3 +67,83 @@ with st.sidebar:
         st.header("2. Parametri Forecast")
         model_tab = st.selectbox("Seleziona il modello", ["Prophet", "ARIMA", "Holt-Winters"])
         launch_forecast = st.button("🚀 Avvia il forecast")
+
+# Esecuzione modello e visualizzazione risultati
+if file and launch_forecast:
+    df[date_col] = pd.to_datetime(df[date_col], format=date_format)
+    df = df[[date_col, target_col]].dropna()
+
+    if clean_zeros:
+        df = df[df[target_col] != 0]
+    if clip_negatives:
+        df[target_col] = df[target_col].clip(lower=0)
+    if replace_outliers:
+        y = df[target_col]
+        z = (y - y.mean()) / y.std()
+        df.loc[z.abs() > 3, target_col] = y.median()
+
+    if aggregation_method == "sum":
+        df = df.groupby(date_col).sum().reset_index()
+    elif aggregation_method == "mean":
+        df = df.groupby(date_col).mean().reset_index()
+    elif aggregation_method == "max":
+        df = df.groupby(date_col).max().reset_index()
+    elif aggregation_method == "min":
+        df = df.groupby(date_col).min().reset_index()
+
+    df = df.rename(columns={date_col: "ds", target_col: "y"})
+    df = df.set_index("ds").asfreq(freq).reset_index()
+
+    st.subheader(f"🔎 Risultati del modello: {model_tab}")
+
+    if model_tab == "Prophet":
+        # Parametri fittizi (da espandere con la sezione Modelling)
+        yearly_seasonality = True
+        weekly_seasonality = True
+        daily_seasonality = False
+        seasonality_mode = "additive"
+        changepoint_prior_scale = 0.05
+        periods_input = 30
+        use_holidays = False
+
+        model, forecast = build_prophet_model(
+            df=df,
+            freq=freq,
+            periods_input=periods_input,
+            use_holidays=use_holidays,
+            yearly=yearly_seasonality,
+            weekly=weekly_seasonality,
+            daily=daily_seasonality,
+            seasonality_mode=seasonality_mode,
+            changepoint_prior_scale=changepoint_prior_scale
+        )
+
+        st.subheader("📊 Previsioni")
+        st.plotly_chart(plot_forecast(model, forecast))
+
+        st.subheader("📈 Componenti del modello")
+        st.plotly_chart(plot_components(model, forecast))
+
+        st.subheader("📏 Metriche di errore")
+        mae, rmse, mape, df_combined = evaluate_forecast(df, forecast)
+        st.write(f"**MAE:** {mae:.2f}")
+        st.write(f"**RMSE:** {rmse:.2f}")
+        st.write(f"**MAPE:** {mape:.2f}%")
+
+        st.subheader("📁 Esporta i risultati")
+        csv_export = forecast.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📅 Scarica il forecast in CSV",
+            data=csv_export,
+            file_name='forecast_prophet.csv',
+            mime='text/csv'
+        )
+
+    elif model_tab == "ARIMA":
+        st.info("🔧 Modulo ARIMA in sviluppo. Presto disponibile.")
+
+    elif model_tab == "Holt-Winters":
+        st.info("🔧 Modulo Holt-Winters in sviluppo. Presto disponibile.")
+
+    elif model_tab == "Exploratory":
+        st.info("🔍 Sezione di esplorazione dati in sviluppo. Prossimamente disponibile.")
