@@ -3,7 +3,6 @@ import numpy as np
 from prophet import Prophet
 from prophet.plot import plot_plotly, plot_components_plotly
 from sklearn.metrics import mean_absolute_error, mean_squared_error
-import plotly.graph_objects as go
 
 
 def build_prophet_model(df, freq, periods_input, use_holidays, yearly, weekly, daily, seasonality_mode, changepoint_prior_scale):
