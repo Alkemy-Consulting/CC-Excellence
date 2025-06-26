@@ -49,36 +49,36 @@ with tabs[1]:
             df = pd.read_csv(file, delimiter=delimiter)
             columns = df.columns.tolist()
 
-            st.header("2. Columns")
-            date_col = st.selectbox("Colonna data", options=columns)
-            target_col = st.selectbox("Colonna target", options=columns)
+            with st.expander("🧩 Columns"):
+                date_col = st.selectbox("Colonna data", options=columns)
+                target_col = st.selectbox("Colonna target", options=columns)
 
-            st.header("3. Granularità")
-            try:
-                df[date_col] = pd.to_datetime(df[date_col], format=date_format)
-                df_sorted = df.sort_values(by=date_col)
-                inferred = pd.infer_freq(df_sorted[date_col])
-                detected_freq = inferred if inferred else "D"
-            except:
-                detected_freq = "D"
-            st.text(f"Granularità rilevata: {detected_freq}")
-            freq = st.selectbox("Seleziona una nuova granularità", ["D", "W", "M"], index=["D", "W", "M"].index(detected_freq) if detected_freq in ["D", "W", "M"] else 0)
-            aggregation_method = st.selectbox("Metodo di aggregazione", ["sum", "mean", "max", "min"])
+            with st.expander("⏱️ Granularità"):
+                try:
+                    df[date_col] = pd.to_datetime(df[date_col], format=date_format)
+                    df_sorted = df.sort_values(by=date_col)
+                    inferred = pd.infer_freq(df_sorted[date_col])
+                    detected_freq = inferred if inferred else "D"
+                except:
+                    detected_freq = "D"
+                st.text(f"Granularità rilevata: {detected_freq}")
+                freq = st.selectbox("Seleziona una nuova granularità", ["D", "W", "M"], index=["D", "W", "M"].index(detected_freq) if detected_freq in ["D", "W", "M"] else 0)
+                aggregation_method = st.selectbox("Metodo di aggregazione", ["sum", "mean", "max", "min"])
 
-            st.header("4. Parametri Prophet")
+            st.header("2. Parametri Prophet")
             yearly_seasonality = st.checkbox("Stagionalità annuale", value=True)
             weekly_seasonality = st.checkbox("Stagionalità settimanale", value=True)
             daily_seasonality = st.checkbox("Stagionalità giornaliera", value=False)
             seasonality_mode = st.selectbox("Seasonality mode", ["additive", "multiplicative"])
             changepoint_prior_scale = st.slider("Changepoint prior scale", 0.001, 0.5, 0.05)
 
-            st.header("5. Orizzonte di forecast")
+            st.header("3. Orizzonte di forecast")
             periods_input = st.number_input("Inserisci il numero di periodi da prevedere", min_value=1, max_value=365, value=30)
 
-            st.header("6. Opzioni avanzate")
+            st.header("4. Opzioni avanzate")
             use_holidays = st.checkbox("Includi festività italiane", value=False)
 
-            st.header("7. Esegui")
+            st.header("5. Esegui")
             launch_forecast = st.button("🚀 Avvia il forecast")
 
     if df is not None:
