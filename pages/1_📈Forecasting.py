@@ -64,9 +64,36 @@ with st.sidebar:
             replace_outliers = st.checkbox("Sostituisci outlier (z-score > 3) con mediana", value=True)
             clip_negatives = st.checkbox("Trasforma valori negativi in zero", value=True)
 
-        st.header("2. Parametri Forecast")
+        st.header("2. Modelling")
         model_tab = st.selectbox("Seleziona il modello", ["Prophet", "ARIMA", "Holt-Winters"])
-        launch_forecast = st.button("🚀 Avvia il forecast")
+                if model_tab == "Prophet":
+            with st.expander("🔧 Parametri Prophet"):
+                yearly_seasonality = st.checkbox("Stagionalità annuale", value=True)
+                weekly_seasonality = st.checkbox("Stagionalità settimanale", value=True)
+                daily_seasonality = st.checkbox("Stagionalità giornaliera", value=False)
+                seasonality_mode = st.selectbox("Tipo di stagionalità", ["additive", "multiplicative"])
+                changepoint_prior_scale = st.slider("Changepoint prior scale", 0.001, 0.5, 0.05)
+                periods_input = st.number_input("Orizzonte di forecast (periodi)", min_value=1, max_value=365, value=30)
+                use_holidays = st.checkbox("Includi festività italiane", value=False)
+
+        elif model_tab == "Holt-Winters":
+            with st.expander("🔧 Parametri Holt-Winters"):
+                auto_params = st.checkbox("Usa parametri automatici (alpha, beta, gamma)", value=True)
+                if not auto_params:
+                    alpha = st.slider("Alpha (livello)", 0.0, 1.0, 0.2)
+                    beta = st.slider("Beta (trend)", 0.0, 1.0, 0.1)
+                    gamma = st.slider("Gamma (stagionalità)", 0.0, 1.0, 0.1)
+                seasonal_periods = st.number_input("Periodi stagionali", min_value=2, max_value=365, value=7)
+                periods_input = st.number_input("Orizzonte di forecast (periodi)", min_value=1, max_value=365, value=30)
+
+        elif model_tab == "ARIMA":
+            with st.expander("🔧 Parametri ARIMA"):
+                p = st.number_input("Parametro p (autoregressivo)", min_value=0, max_value=5, value=1)
+                d = st.number_input("Parametro d (differenziazione)", min_value=0, max_value=2, value=1)
+                q = st.number_input("Parametro q (media mobile)", min_value=0, max_value=5, value=1)
+                periods_input = st.number_input("Orizzonte di forecast (periodi)", min_value=1, max_value=365, value=30)
+
+        launch_forecast = st.button("🚀 Avvia il f
 
 if file and launch_forecast:
     df[date_col] = pd.to_datetime(df[date_col], format=date_format)
