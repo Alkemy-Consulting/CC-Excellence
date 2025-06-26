@@ -69,31 +69,34 @@ with st.sidebar:
         model_tab = st.selectbox("Seleziona il modello", ["Prophet", "ARIMA", "Holt-Winters", "Exploratory"])
 
         st.header("3. Backtesting")
-        with st.expander("⚙️ Impostazioni Backtest"):
-            with st.container():
-                st.subheader("📊 Split")
-                use_cv = st.checkbox("Usa Cross-Validation")
-                if use_cv:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        cv_start_date = st.date_input("Data inizio CV")
-                    with col2:
-                        cv_end_date = st.date_input("Data fine CV")
-                    n_folds = st.number_input("Numero di folds", min_value=2, max_value=20, value=5)
-                    fold_horizon = st.number_input("Orizzonte per fold (in periodi)", min_value=1, value=30)
 
-            with st.container():
-                st.subheader("📏 Metriche")
-                selected_metrics = st.multiselect(
-                    "Seleziona le metriche di valutazione",
-                    options=["MAPE", "MAE", "MSE", "RMSE", "SMAPE"],
-                    default=["MAPE", "MAE", "RMSE"]
-                )
+        with st.expander("📊 Split"):
+            use_cv = st.checkbox("Usa Cross-Validation")
+            if use_cv:
+                col1, col2 = st.columns(2)
+                with col1:
+                    cv_start_date = st.date_input("Data inizio CV")
+                with col2:
+                    cv_end_date = st.date_input("Data fine CV")
+                n_folds = st.number_input("Numero di folds", min_value=2, max_value=20, value=5)
+                fold_horizon = st.number_input("Orizzonte per fold (in periodi)", min_value=1, value=30)
 
-            with st.container():
-                st.subheader("🗓️ Scope")
-                st.write("(Periodo o finestra di validazione)")
-                aggregate_scope = st.checkbox("Valuta le performance su valori aggregati")
+            if df is not None and not df.empty and not use_cv:
+                test_start = df[date_col].iloc[int(len(df)*0.8)]
+                test_end = df[date_col].iloc[-1]
+                train_pct = round(len(df[df[date_col] < test_start]) / len(df) * 100, 2)
+                st.success(f"Il test set va da **{test_start.date()}** a **{test_end.date()}** – il training usa il {train_pct}% dei dati")
+
+        with st.expander("📏 Metriche"):
+            selected_metrics = st.multiselect(
+                "Seleziona le metriche di valutazione",
+                options=["MAPE", "MAE", "MSE", "RMSE", "SMAPE"],
+                default=["MAPE", "MAE", "RMSE"]
+            )
+
+        with st.expander("🗓️ Scope"):
+            st.write("(Periodo o finestra di validazione)")
+            aggregate_scope = st.checkbox("Valuta le performance su valori aggregati")
 
         st.header("4. Forecast")
         with st.expander("📅 Parametri Forecast"):
