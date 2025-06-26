@@ -42,7 +42,23 @@ with tabs[1]:
         st.header("1. Data")
         with st.expander("📂 Dataset"):
             delimiter = st.selectbox("Delimitatore CSV", [",", ";", "|", "\t"], index=0)
-            date_format = st.text_input("Formato data (es. %Y-%m-%d)", value="%Y-%m-%d")
+            user_friendly_format = st.selectbox("Formato data", [
+                "gg/mm/aaaa",
+                "gg/mm/aa",
+                "aaaa-mm-gg",
+                "mm/gg/aaaa",
+                "gg.mm.aaaa",
+                "aaaa/mm/gg"
+            ], index=0)
+            format_map = {
+                "gg/mm/aaaa": "%d/%m/%Y",
+                "gg/mm/aa": "%d/%m/%y",
+                "aaaa-mm-gg": "%Y-%m-%d",
+                "mm/gg/aaaa": "%m/%d/%Y",
+                "gg.mm.aaaa": "%d.%m.%Y",
+                "aaaa/mm/gg": "%Y/%m/%d"
+            }
+            date_format = format_map[user_friendly_format]
             file = st.file_uploader("Carica un file CSV", type=["csv"])
 
         if file:
