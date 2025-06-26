@@ -21,7 +21,7 @@ st.title("📈 Contact Center Forecasting Tool")
 with st.sidebar:
     st.header("1. Data")
     with st.expander("📂 Dataset"):
-        delimiter = st.selectbox("Delimitatore CSV", [",", ";", "|", "	"], index=0)
+        delimiter = st.selectbox("Delimitatore CSV", [",", ";", "|", "\t"], index=0)
         user_friendly_format = st.selectbox("Formato data", [
             "gg/mm/aaaa", "gg/mm/aa", "aaaa-mm-gg",
             "mm/gg/aaaa", "gg.mm.aaaa", "aaaa/mm/gg"
@@ -44,7 +44,7 @@ with st.sidebar:
         df = pd.read_csv(file, delimiter=delimiter)
         columns = df.columns.tolist()
 
-        with st.expander("🧩 Columns"):
+        with st.expander("🧹 Columns"):
             date_col = st.selectbox("Colonna data", options=columns)
             target_col = st.selectbox("Colonna target", options=columns, index=1 if len(columns) > 1 else 0)
 
@@ -65,8 +65,29 @@ with st.sidebar:
             replace_outliers = st.checkbox("Sostituisci outlier (z-score > 3) con mediana", value=True)
             clip_negatives = st.checkbox("Trasforma valori negativi in zero", value=True)
 
-        st.header("2. Parametri Forecast")
+        st.header("2. Modello")
         model_tab = st.selectbox("Seleziona il modello", ["Prophet", "ARIMA", "Holt-Winters", "Exploratory"])
+
+        st.header("3. Backtesting")
+        with st.expander("⚙️ Impostazioni Backtest"):
+    backtest_type = st.selectbox("Metodo di validazione", ["Train/Test Split", "Cross-Validation"], index=0)
+    if backtest_type == "Train/Test Split":
+        test_size = st.number_input("% di dati per il test", min_value=5, max_value=50, value=20, step=5)
+    elif backtest_type == "Cross-Validation":
+        initial = st.number_input("Finestra iniziale (periodi)", min_value=1, value=90)
+        period = st.number_input("Periodo tra ogni split (periodi)", min_value=1, value=30)
+        horizon_cv = st.number_input("Orizzonte di validazione (periodi)", min_value=1, value=30)
+
+        st.header("4. Forecast")
+        with st.expander("📅 Parametri Forecast"):
+    make_forecast = st.checkbox("Make forecast on future dates")
+    if make_forecast:
+        horizon = st.number_input("Orizzonte (numero di periodi)", min_value=1, value=30)
+        if df is not None and not df.empty:
+            start_date = df[date_col].max() + pd.tseries.frequencies.to_offset(freq)
+            end_date = start_date + pd.tseries.frequencies.to_offset(freq) * (horizon - 1)
+            st.success(f"Il forecast coprirà il periodo da **{start_date.date()}** a **{end_date.date()}**")
+
         launch_forecast = st.button("🚀 Avvia il forecast")
 
 # Esecuzione modello e visualizzazione risultati
@@ -98,7 +119,6 @@ if file and launch_forecast:
     st.subheader(f"🔎 Risultati del modello: {model_tab}")
 
     if model_tab == "Prophet":
-        # Parametri fittizi (da espandere con la sezione Modelling)
         yearly_seasonality = True
         weekly_seasonality = True
         daily_seasonality = False
@@ -119,22 +139,22 @@ if file and launch_forecast:
             changepoint_prior_scale=changepoint_prior_scale
         )
 
-        st.subheader("📊 Previsioni")
+        st.subheader("📈 Previsioni")
         st.plotly_chart(plot_forecast(model, forecast))
 
-        st.subheader("📈 Componenti del modello")
+        st.subheader("📁 Componenti del modello")
         st.plotly_chart(plot_components(model, forecast))
 
-        st.subheader("📏 Metriche di errore")
+        st.subheader("🔏 Metriche di errore")
         mae, rmse, mape, df_combined = evaluate_forecast(df, forecast)
         st.write(f"**MAE:** {mae:.2f}")
         st.write(f"**RMSE:** {rmse:.2f}")
         st.write(f"**MAPE:** {mape:.2f}%")
 
-        st.subheader("📁 Esporta i risultati")
+        st.subheader("📅 Esporta i risultati")
         csv_export = forecast.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="📅 Scarica il forecast in CSV",
+            label="📆 Scarica il forecast in CSV",
             data=csv_export,
             file_name='forecast_prophet.csv',
             mime='text/csv'
