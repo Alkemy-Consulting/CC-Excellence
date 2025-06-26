@@ -10,115 +10,99 @@ from prophet_module import (
 
 st.title("📈 Contact Center Forecasting Tool")
 
-tabs = st.tabs(["Exploratory", "Prophet", "ARIMA", "Holt-Winters"])
+tab_names = ["Exploratory", "Prophet", "ARIMA", "Holt-Winters"]
+tabs = st.tabs(tab_names)
 
-with tabs[0]:
-    st.write("Prossimamente...")
+# Sidebar comune
+with st.sidebar:
+    st.header("1. Data")
+    with st.expander("📂 Dataset"):
+        delimiter = st.selectbox("Delimitatore CSV", [",", ";", "|", "\t"], index=0)
+        user_friendly_format = st.selectbox("Formato data", [
+            "gg/mm/aaaa", "gg/mm/aa", "aaaa-mm-gg",
+            "mm/gg/aaaa", "gg.mm.aaaa", "aaaa/mm/gg"
+        ], index=0)
+        format_map = {
+            "gg/mm/aaaa": "%d/%m/%Y",
+            "gg/mm/aa": "%d/%m/%y",
+            "aaaa-mm-gg": "%Y-%m-%d",
+            "mm/gg/aaaa": "%m/%d/%Y",
+            "gg.mm.aaaa": "%d.%m.%Y",
+            "aaaa/mm/gg": "%Y/%m/%d"
+        }
+        date_format = format_map[user_friendly_format]
+        file = st.file_uploader("Carica un file CSV", type=["csv"])
 
-with tabs[1]:
-    st.subheader("🔮 Forecasting con Prophet")
+    df, date_col, target_col, freq, aggregation_method = None, None, None, "D", "sum"
+    if file:
+        df = pd.read_csv(file, delimiter=delimiter)
+        columns = df.columns.tolist()
 
-    df = None
-    columns = []
-    date_col = target_col = freq = None
-    detected_freq = "D"
-    aggregation_method = "sum"
-    yearly_seasonality = weekly_seasonality = daily_seasonality = False
-    seasonality_mode = "additive"
-    changepoint_prior_scale = 0.05
-    periods_input = 30
-    use_holidays = False
-    launch_forecast = False
-    delimiter = ","
+        with st.expander("🧩 Columns"):
+            date_col = st.selectbox("Colonna data", options=columns)
+            target_col = st.selectbox("Colonna target", options=columns)
 
-    with st.sidebar:
-        st.header("1. Data")
-        with st.expander("📂 Dataset"):
-            delimiter = st.selectbox("Delimitatore CSV", [",", ";", "|", "\t"], index=0)
-            user_friendly_format = st.selectbox("Formato data", [
-                "gg/mm/aaaa", "gg/mm/aa", "aaaa-mm-gg",
-                "mm/gg/aaaa", "gg.mm.aaaa", "aaaa/mm/gg"
-            ], index=0)
-            format_map = {
-                "gg/mm/aaaa": "%d/%m/%Y",
-                "gg/mm/aa": "%d/%m/%y",
-                "aaaa-mm-gg": "%Y-%m-%d",
-                "mm/gg/aaaa": "%m/%d/%Y",
-                "gg.mm.aaaa": "%d.%m.%Y",
-                "aaaa/mm/gg": "%Y/%m/%d"
-            }
-            date_format = format_map[user_friendly_format]
-            file = st.file_uploader("Carica un file CSV", type=["csv"])
+        with st.expander("⏱️ Granularità"):
+            try:
+                df[date_col] = pd.to_datetime(df[date_col], format=date_format)
+                df_sorted = df.sort_values(by=date_col)
+                inferred = pd.infer_freq(df_sorted[date_col])
+                detected_freq = inferred if inferred else "D"
+            except:
+                detected_freq = "D"
+            st.text(f"Granularità rilevata: {detected_freq}")
+            freq = st.selectbox("Seleziona una nuova granularità", ["D", "W", "M"], index=["D", "W", "M"].index(detected_freq) if detected_freq in ["D", "W", "M"] else 0)
+            aggregation_method = st.selectbox("Metodo di aggregazione", ["sum", "mean", "max", "min"])
 
-        if file:
-            df = pd.read_csv(file, delimiter=delimiter)
-            columns = df.columns.tolist()
+        with st.expander("🧹 Data Cleaning"):
+            clean_zeros = st.checkbox("Rimuovi righe con zero nel target", value=True)
+            replace_outliers = st.checkbox("Sostituisci outlier (z-score > 3) con mediana", value=True)
+            clip_negatives = st.checkbox("Trasforma valori negativi in zero", value=True)
 
-            with st.expander("🧩 Columns"):
-                date_col = st.selectbox("Colonna data", options=columns)
-                target_col = st.selectbox("Colonna target", options=columns)
+        st.header("2. Parametri Forecast")
+        model_tab = st.selectbox("Seleziona il modello", tab_names[1:])
+        launch_forecast = st.button("🚀 Avvia il forecast")
 
-            with st.expander("⏱️ Granularità"):
-                try:
-                    df[date_col] = pd.to_datetime(df[date_col], format=date_format)
-                    df_sorted = df.sort_values(by=date_col)
-                    inferred = pd.infer_freq(df_sorted[date_col])
-                    detected_freq = inferred if inferred else "D"
-                except:
-                    detected_freq = "D"
-                st.text(f"Granularità rilevata: {detected_freq}")
-                freq = st.selectbox("Seleziona una nuova granularità", ["D", "W", "M"], index=["D", "W", "M"].index(detected_freq) if detected_freq in ["D", "W", "M"] else 0)
-                aggregation_method = st.selectbox("Metodo di aggregazione", ["sum", "mean", "max", "min"])
+# UI tab
+for i, tab in enumerate(tabs):
+    with tab:
+        if i == 0:
+            st.write("Prossimamente...")
 
-            with st.expander("🧹 Data Cleaning"):
-                clean_zeros = st.checkbox("Rimuovi righe con zero nel target", value=True)
-                replace_outliers = st.checkbox("Sostituisci outlier (z-score > 3) con mediana", value=True)
-                clip_negatives = st.checkbox("Trasforma valori negativi in zero", value=True)
+        elif i == 1 and model_tab == "Prophet" and file and launch_forecast:
+            df[date_col] = pd.to_datetime(df[date_col], format=date_format)
+            df = df[[date_col, target_col]].dropna()
 
-            st.header("2. Parametri Prophet")
-            yearly_seasonality = st.checkbox("Stagionalità annuale", value=True)
-            weekly_seasonality = st.checkbox("Stagionalità settimanale", value=True)
-            daily_seasonality = st.checkbox("Stagionalità giornaliera", value=False)
-            seasonality_mode = st.selectbox("Seasonality mode", ["additive", "multiplicative"])
-            changepoint_prior_scale = st.slider("Changepoint prior scale", 0.001, 0.5, 0.05)
+            if clean_zeros:
+                df = df[df[target_col] != 0]
+            if clip_negatives:
+                df[target_col] = df[target_col].clip(lower=0)
+            if replace_outliers:
+                y = df[target_col]
+                z = (y - y.mean()) / y.std()
+                df.loc[z.abs() > 3, target_col] = y.median()
 
-            st.header("3. Orizzonte di forecast")
-            periods_input = st.number_input("Inserisci il numero di periodi da prevedere", min_value=1, max_value=365, value=30)
+            if aggregation_method == "sum":
+                df = df.groupby(date_col).sum().reset_index()
+            elif aggregation_method == "mean":
+                df = df.groupby(date_col).mean().reset_index()
+            elif aggregation_method == "max":
+                df = df.groupby(date_col).max().reset_index()
+            elif aggregation_method == "min":
+                df = df.groupby(date_col).min().reset_index()
 
-            st.header("4. Opzioni avanzate")
-            use_holidays = st.checkbox("Includi festività italiane", value=False)
+            df = df.rename(columns={date_col: "ds", target_col: "y"})
+            df = df.set_index("ds").asfreq(freq).reset_index()
 
-            st.header("5. Esegui")
-            launch_forecast = st.button("🚀 Avvia il forecast")
+            # Parametri Prophet (temporanei, si possono mettere in sidebar)
+            yearly_seasonality = True
+            weekly_seasonality = True
+            daily_seasonality = False
+            seasonality_mode = "additive"
+            changepoint_prior_scale = 0.05
+            periods_input = 30
+            use_holidays = False
 
-    if df is not None:
-        st.write("Anteprima dei dati:", df.head())
-
-        df[date_col] = pd.to_datetime(df[date_col], format=date_format)
-        df = df[[date_col, target_col]].dropna()
-
-        if clean_zeros:
-            df = df[df[target_col] != 0]
-        if clip_negatives:
-            df[target_col] = df[target_col].clip(lower=0)
-        if replace_outliers:
-            y = df[target_col]
-            z = (y - y.mean()) / y.std()
-            df.loc[z.abs() > 3, target_col] = y.median()
-
-        if aggregation_method == "sum":
-            df = df.groupby(date_col).sum().reset_index()
-        elif aggregation_method == "mean":
-            df = df.groupby(date_col).mean().reset_index()
-        elif aggregation_method == "max":
-            df = df.groupby(date_col).max().reset_index()
-        elif aggregation_method == "min":
-            df = df.groupby(date_col).min().reset_index()
-
-        df = df.rename(columns={date_col: "ds", target_col: "y"})
-        df = df.set_index("ds").asfreq(freq).reset_index()
-
-        if launch_forecast:
             model, forecast = build_prophet_model(
                 df=df,
                 freq=freq,
@@ -152,8 +136,5 @@ with tabs[1]:
                 mime='text/csv'
             )
 
-with tabs[2]:
-    st.write("Prossimamente...")
-
-with tabs[3]:
-    st.write("Prossimamente...")
+        elif i > 1:
+            st.write("Prossimamente...")
