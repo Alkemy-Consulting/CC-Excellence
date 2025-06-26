@@ -6,6 +6,9 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 import numpy as np
 import plotly.express as px
 
+# Definisci i tab UNA SOLA VOLTA
+tabs = st.tabs(["Exploratory", "Prophet", "ARIMA", "Holt-Winters"])
+
 with tabs[1]:
     st.subheader("🔮 Forecasting con Prophet")
 
