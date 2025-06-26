@@ -25,60 +25,60 @@ with tabs[1]:
 
     # Sidebar completa
     with st.sidebar:
-        st.header("Impostazioni Prophet")
-
-        file = st.file_uploader("Carica il file CSV", type="csv")
+        st.header("1. Carica i dati")
+        file = st.file_uploader("Carica un file CSV", type=["csv"])
 
         if file:
-            st.subheader("Stagionalità")
-            yearly_seasonality = st.checkbox("Annuale", value=True)
-            weekly_seasonality = st.checkbox("Settimanale", value=True)
-            daily_seasonality = st.checkbox("Giornaliera", value=False)
+            df = pd.read_csv(file)
+            columns = df.columns.tolist()
 
-            st.subheader("Parametri avanzati")
+            st.header("2. Preparazione dati")
+            date_col = st.selectbox("Colonna data", options=columns)
+            target_col = st.selectbox("Colonna target", options=columns)
+
+            st.header("3. Parametri Prophet")
+            yearly_seasonality = st.checkbox("Stagionalità annuale", value=True)
+            weekly_seasonality = st.checkbox("Stagionalità settimanale", value=True)
+            daily_seasonality = st.checkbox("Stagionalità giornaliera", value=False)
+            seasonality_mode = st.selectbox("Seasonality mode", ["additive", "multiplicative"])
             changepoint_prior_scale = st.slider("Changepoint prior scale", 0.001, 0.5, 0.05)
-            seasonality_mode = st.selectbox("Stagionalità Mode", ["additive", "multiplicative"])
 
-            st.subheader("Orizzonte di forecast")
-            periods_input = st.number_input('Numero di periodi da prevedere:', min_value=1, max_value=365, value=30)
+            st.header("4. Orizzonte di forecast")
+            periods_input = st.number_input("Inserisci il numero di giorni di forecast", min_value=1, max_value=365, value=30)
 
-            st.subheader("Lancia il modello")
-            launch_forecast = st.checkbox("🚀 Launch forecast")
+            st.header("5. Esegui")
+            launch_forecast = st.button("🚀 Avvia il forecast")
 
     if file:
         df = pd.read_csv(file)
         st.write("Anteprima dei dati:", df.head())
 
-        all_cols = df.columns.tolist()
-        date_col = st.selectbox("Seleziona la colonna temporale", all_cols)
-        value_col = st.selectbox("Seleziona la colonna target", all_cols)
-
         df[date_col] = pd.to_datetime(df[date_col])
-        df = df[[date_col, value_col]].dropna()
-        df = df.rename(columns={date_col: "ds", value_col: "y"})
+        df = df[[date_col, target_col]].dropna()
+        df = df.rename(columns={date_col: "ds", target_col: "y"})
 
         if launch_forecast:
             model = Prophet(
                 yearly_seasonality=yearly_seasonality,
                 weekly_seasonality=weekly_seasonality,
                 daily_seasonality=daily_seasonality,
-                changepoint_prior_scale=changepoint_prior_scale,
-                seasonality_mode=seasonality_mode
+                seasonality_mode=seasonality_mode,
+                changepoint_prior_scale=changepoint_prior_scale
             )
             model.fit(df)
 
             future = model.make_future_dataframe(periods=periods_input)
             forecast = model.predict(future)
 
-            st.subheader("Previsioni")
+            st.subheader("📊 Previsioni")
             fig1 = plot_plotly(model, forecast)
             st.plotly_chart(fig1)
 
-            st.subheader("Componenti del modello")
+            st.subheader("📈 Componenti del modello")
             fig2 = plot_components_plotly(model, forecast)
             st.plotly_chart(fig2)
 
-            st.subheader("Valutazione del modello")
+            st.subheader("📏 Metriche di errore")
             df_forecast = forecast[['ds', 'yhat']].set_index('ds')
             df_actual = df.set_index('ds')
             df_combined = df_actual.join(df_forecast, how='left').dropna()
@@ -92,7 +92,7 @@ with tabs[1]:
             st.write(f"**RMSE:** {rmse:.2f}")
             st.write(f"**MAPE:** {mape:.2f}%")
 
-            st.subheader("Esporta i risultati")
+            st.subheader("📁 Esporta i risultati")
             csv_export = forecast.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📅 Scarica il forecast in CSV",
