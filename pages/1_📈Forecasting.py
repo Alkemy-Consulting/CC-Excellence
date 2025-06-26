@@ -69,7 +69,7 @@ with st.sidebar:
         model_tab = st.selectbox("Seleziona il modello", ["Prophet", "ARIMA", "Holt-Winters", "Exploratory"])
 
         st.header("3. Backtesting")
-                with st.expander("⚙️ Impostazioni Backtest"):
+        with st.expander("⚙️ Impostazioni Backtest"):
                         backtest_type = st.selectbox("Metodo di validazione", ["Train/Test Split", "Cross-Validation"], index=0)
         if backtest_type == "Train/Test Split":
             test_size = st.number_input("% di dati per il test", min_value=5, max_value=50, value=20, step=5)
