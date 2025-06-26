@@ -32,14 +32,19 @@ with tabs[1]:
     periods_input = 30
     use_holidays = False
     launch_forecast = False
+    delimiter = ","
+    date_format = "%Y-%m-%d"
 
     # Sidebar completa
     with st.sidebar:
-        st.header("1. Carica i dati")
-        file = st.file_uploader("Carica un file CSV", type=["csv"])
+        st.header("1. Data")
+        with st.expander("📂 Dataset"):
+            delimiter = st.selectbox("Delimitatore CSV", [",", ";", "|", "\t"], index=0)
+            date_format = st.text_input("Formato data (es. %Y-%m-%d)", value="%Y-%m-%d")
+            file = st.file_uploader("Carica un file CSV", type=["csv"])
 
         if file:
-            df = pd.read_csv(file)
+            df = pd.read_csv(file, delimiter=delimiter)
             columns = df.columns.tolist()
 
             st.header("2. Preparazione dati")
@@ -68,7 +73,7 @@ with tabs[1]:
     if df is not None:
         st.write("Anteprima dei dati:", df.head())
 
-        df[date_col] = pd.to_datetime(df[date_col])
+        df[date_col] = pd.to_datetime(df[date_col], format=date_format)
         df = df[[date_col, target_col]].dropna()
 
         if fillna_method == "zero":
