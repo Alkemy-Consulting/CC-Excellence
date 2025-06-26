@@ -36,6 +36,9 @@ with tabs[1]:
             date_col = st.selectbox("Colonna data", options=columns)
             target_col = st.selectbox("Colonna target", options=columns)
 
+            freq = st.selectbox("Frequenza della serie temporale", ["D", "W", "M"], index=0)
+            fillna_method = st.selectbox("Metodo per valori mancanti", ["drop", "zero", "interpolate"], index=0)
+
             st.header("3. Parametri Prophet")
             yearly_seasonality = st.checkbox("Stagionalità annuale", value=True)
             weekly_seasonality = st.checkbox("Stagionalità settimanale", value=True)
@@ -44,9 +47,12 @@ with tabs[1]:
             changepoint_prior_scale = st.slider("Changepoint prior scale", 0.001, 0.5, 0.05)
 
             st.header("4. Orizzonte di forecast")
-            periods_input = st.number_input("Inserisci il numero di giorni di forecast", min_value=1, max_value=365, value=30)
+            periods_input = st.number_input("Inserisci il numero di periodi da prevedere", min_value=1, max_value=365, value=30)
 
-            st.header("5. Esegui")
+            st.header("5. Opzioni avanzate")
+            use_holidays = st.checkbox("Includi festività italiane", value=False)
+
+            st.header("6. Esegui")
             launch_forecast = st.button("🚀 Avvia il forecast")
 
     if file:
@@ -55,19 +61,50 @@ with tabs[1]:
 
         df[date_col] = pd.to_datetime(df[date_col])
         df = df[[date_col, target_col]].dropna()
+
+        if fillna_method == "zero":
+            df[target_col] = df[target_col].fillna(0)
+        elif fillna_method == "interpolate":
+            df[target_col] = df[target_col].interpolate()
+
         df = df.rename(columns={date_col: "ds", target_col: "y"})
+        df = df.groupby("ds").sum().reset_index()
+        df = df.set_index("ds").asfreq(freq).reset_index()
 
         if launch_forecast:
-            model = Prophet(
-                yearly_seasonality=yearly_seasonality,
-                weekly_seasonality=weekly_seasonality,
-                daily_seasonality=daily_seasonality,
-                seasonality_mode=seasonality_mode,
-                changepoint_prior_scale=changepoint_prior_scale
-            )
-            model.fit(df)
+            if use_holidays:
+                years = df['ds'].dt.year.unique()
+                holiday_dates = []
+                for year in years:
+                    holiday_dates.extend([
+                        f"{year}-01-01", f"{year}-01-06", f"{year}-04-25",
+                        f"{year}-05-01", f"{year}-06-02", f"{year}-08-15",
+                        f"{year}-11-01", f"{year}-12-08", f"{year}-12-25",
+                        f"{year}-12-26"
+                    ])
+                holidays = pd.DataFrame({
+                    'ds': pd.to_datetime(holiday_dates),
+                    'holiday': 'festività_italiane'
+                })
+                model = Prophet(
+                    yearly_seasonality=yearly_seasonality,
+                    weekly_seasonality=weekly_seasonality,
+                    daily_seasonality=daily_seasonality,
+                    seasonality_mode=seasonality_mode,
+                    changepoint_prior_scale=changepoint_prior_scale,
+                    holidays=holidays
+                )
+            else:
+                model = Prophet(
+                    yearly_seasonality=yearly_seasonality,
+                    weekly_seasonality=weekly_seasonality,
+                    daily_seasonality=daily_seasonality,
+                    seasonality_mode=seasonality_mode,
+                    changepoint_prior_scale=changepoint_prior_scale
+                )
 
-            future = model.make_future_dataframe(periods=periods_input)
+            model.fit(df)
+            future = model.make_future_dataframe(periods=periods_input, freq=freq)
             forecast = model.predict(future)
 
             st.subheader("📊 Previsioni")
