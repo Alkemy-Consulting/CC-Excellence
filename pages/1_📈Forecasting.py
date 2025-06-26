@@ -69,8 +69,8 @@ with st.sidebar:
         model_tab = st.selectbox("Seleziona il modello", ["Prophet", "ARIMA", "Holt-Winters", "Exploratory"])
 
         st.header("3. Backtesting")
-        with st.expander("⚙️ Impostazioni Backtest"):
-        backtest_type = st.selectbox("Metodo di validazione", ["Train/Test Split", "Cross-Validation"], index=0)
+                with st.expander("⚙️ Impostazioni Backtest"):
+                        backtest_type = st.selectbox("Metodo di validazione", ["Train/Test Split", "Cross-Validation"], index=0)
         if backtest_type == "Train/Test Split":
             test_size = st.number_input("% di dati per il test", min_value=5, max_value=50, value=20, step=5)
         elif backtest_type == "Cross-Validation":
@@ -78,6 +78,7 @@ with st.sidebar:
             period = st.number_input("Periodo tra ogni split (periodi)", min_value=1, value=30)
             horizon_cv = st.number_input("Orizzonte di validazione (periodi)", min_value=1, value=30)
 
+        
         st.header("4. Forecast")
         with st.expander("📅 Parametri Forecast"):
             make_forecast = st.checkbox("Make forecast on future dates")
