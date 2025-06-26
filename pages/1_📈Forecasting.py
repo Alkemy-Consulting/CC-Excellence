@@ -13,6 +13,7 @@ from prophet_module import (
     plot_forecast,
     plot_components
 )
+from exploratory_module import run_exploratory_analysis
 
 st.title("📈 Contact Center Forecasting Tool")
 
@@ -65,7 +66,7 @@ with st.sidebar:
             clip_negatives = st.checkbox("Trasforma valori negativi in zero", value=True)
 
         st.header("2. Parametri Forecast")
-        model_tab = st.selectbox("Seleziona il modello", ["Prophet", "ARIMA", "Holt-Winters"])
+        model_tab = st.selectbox("Seleziona il modello", ["Prophet", "ARIMA", "Holt-Winters", "Exploratory"])
         launch_forecast = st.button("🚀 Avvia il forecast")
 
 # Esecuzione modello e visualizzazione risultati
@@ -146,4 +147,4 @@ if file and launch_forecast:
         st.info("🔧 Modulo Holt-Winters in sviluppo. Presto disponibile.")
 
     elif model_tab == "Exploratory":
-        st.info("🔍 Sezione di esplorazione dati in sviluppo. Prossimamente disponibile.")
+        run_exploratory_analysis(df)
