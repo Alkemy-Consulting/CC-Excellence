@@ -24,6 +24,7 @@ with tabs[1]:
     st.subheader("🔮 Forecasting con Prophet")
 
     file = st.file_uploader("Carica il file CSV", type="csv")
+
     if file:
         df = pd.read_csv(file)
         st.write("Anteprima dei dati:", df.head())
@@ -36,60 +37,68 @@ with tabs[1]:
         df = df[[date_col, value_col]].dropna()
         df = df.rename(columns={date_col: "ds", value_col: "y"})
 
-        # Parametri Prophet
-        st.sidebar.subheader("Parametri del modello Prophet")
-        yearly_seasonality = st.sidebar.checkbox("Stagionalità annuale", value=True)
-        weekly_seasonality = st.sidebar.checkbox("Stagionalità settimanale", value=True)
-        daily_seasonality = st.sidebar.checkbox("Stagionalità giornaliera", value=False)
-        changepoint_prior_scale = st.sidebar.slider("Changepoint prior scale", 0.001, 0.5, 0.05)
+        # Sidebar avanzata
+        with st.sidebar:
+            st.header("Impostazioni Prophet")
 
-        model = Prophet(
-            yearly_seasonality=yearly_seasonality,
-            weekly_seasonality=weekly_seasonality,
-            daily_seasonality=daily_seasonality,
-            changepoint_prior_scale=changepoint_prior_scale
-        )
-        model.fit(df)
+            st.subheader("Stagionalità")
+            yearly_seasonality = st.checkbox("Annuale", value=True)
+            weekly_seasonality = st.checkbox("Settimanale", value=True)
+            daily_seasonality = st.checkbox("Giornaliera", value=False)
 
-        periods_input = st.number_input('Inserisci il numero di periodi da prevedere:', min_value=1, max_value=365, value=30)
+            st.subheader("Parametri avanzati")
+            changepoint_prior_scale = st.slider("Changepoint prior scale", 0.001, 0.5, 0.05)
+            seasonality_mode = st.selectbox("Stagionalità Mode", ["additive", "multiplicative"])
 
-        future = model.make_future_dataframe(periods=periods_input)
-        forecast = model.predict(future)
+            st.subheader("Orizzonte di forecast")
+            periods_input = st.number_input('Numero di periodi da prevedere:', min_value=1, max_value=365, value=30)
 
-        # Grafico previsioni
-        st.subheader("Previsioni")
-        fig1 = plot_plotly(model, forecast)
-        st.plotly_chart(fig1)
+            st.subheader("Lancia il modello")
+            launch_forecast = st.checkbox("🚀 Launch forecast")
 
-        # Componenti
-        st.subheader("Componenti del modello")
-        fig2 = plot_components_plotly(model, forecast)
-        st.plotly_chart(fig2)
+        if launch_forecast:
+            model = Prophet(
+                yearly_seasonality=yearly_seasonality,
+                weekly_seasonality=weekly_seasonality,
+                daily_seasonality=daily_seasonality,
+                changepoint_prior_scale=changepoint_prior_scale,
+                seasonality_mode=seasonality_mode
+            )
+            model.fit(df)
 
-        # Errori
-        st.subheader("Valutazione del modello")
-        df_forecast = forecast[['ds', 'yhat']].set_index('ds')
-        df_actual = df.set_index('ds')
-        df_combined = df_actual.join(df_forecast, how='left').dropna()
+            future = model.make_future_dataframe(periods=periods_input)
+            forecast = model.predict(future)
 
-        mae = mean_absolute_error(df_combined['y'], df_combined['yhat'])
-        mse = mean_squared_error(df_combined['y'], df_combined['yhat'])
-        rmse = mse ** 0.5
-        mape = np.mean(np.abs((df_combined['y'] - df_combined['yhat']) / df_combined['y'])) * 100
+            st.subheader("Previsioni")
+            fig1 = plot_plotly(model, forecast)
+            st.plotly_chart(fig1)
 
-        st.write(f"**MAE:** {mae:.2f}")
-        st.write(f"**RMSE:** {rmse:.2f}")
-        st.write(f"**MAPE:** {mape:.2f}%")
+            st.subheader("Componenti del modello")
+            fig2 = plot_components_plotly(model, forecast)
+            st.plotly_chart(fig2)
 
-        # Esportazione
-        st.subheader("Esporta i risultati")
-        csv_export = forecast.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📅 Scarica il forecast in CSV",
-            data=csv_export,
-            file_name='forecast_prophet.csv',
-            mime='text/csv'
-        )
+            st.subheader("Valutazione del modello")
+            df_forecast = forecast[['ds', 'yhat']].set_index('ds')
+            df_actual = df.set_index('ds')
+            df_combined = df_actual.join(df_forecast, how='left').dropna()
+
+            mae = mean_absolute_error(df_combined['y'], df_combined['yhat'])
+            mse = mean_squared_error(df_combined['y'], df_combined['yhat'])
+            rmse = mse ** 0.5
+            mape = np.mean(np.abs((df_combined['y'] - df_combined['yhat']) / df_combined['y'])) * 100
+
+            st.write(f"**MAE:** {mae:.2f}")
+            st.write(f"**RMSE:** {rmse:.2f}")
+            st.write(f"**MAPE:** {mape:.2f}%")
+
+            st.subheader("Esporta i risultati")
+            csv_export = forecast.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📅 Scarica il forecast in CSV",
+                data=csv_export,
+                file_name='forecast_prophet.csv',
+                mime='text/csv'
+            )
 
 # ===============================
 # TAB 3 e 4 (Placeholder)
