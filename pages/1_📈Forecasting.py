@@ -70,15 +70,29 @@ with st.sidebar:
 
         st.header("3. Backtesting")
         with st.expander("⚙️ Impostazioni Backtest"):
-                        backtest_type = st.selectbox("Metodo di validazione", ["Train/Test Split", "Cross-Validation"], index=0)
-        if backtest_type == "Train/Test Split":
-            test_size = st.number_input("% di dati per il test", min_value=5, max_value=50, value=20, step=5)
-        elif backtest_type == "Cross-Validation":
-            initial = st.number_input("Finestra iniziale (periodi)", min_value=1, value=90)
-            period = st.number_input("Periodo tra ogni split (periodi)", min_value=1, value=30)
-            horizon_cv = st.number_input("Orizzonte di validazione (periodi)", min_value=1, value=30)
+            with st.container():
+            st.subheader("📊 Split")
+            use_cv = st.checkbox("Usa Cross-Validation")
+            if use_cv:
+                col1, col2 = st.columns(2)
+                with col1:
+                    cv_start_date = st.date_input("Data inizio CV")
+                with col2:
+                    cv_end_date = st.date_input("Data fine CV")
+                n_folds = st.number_input("Numero di folds", min_value=2, max_value=20, value=5)
+                fold_horizon = st.number_input("Orizzonte per fold (in periodi)", min_value=1, value=30)
+            with st.container():
+            st.subheader("📏 Metriche")
+            selected_metrics = st.multiselect(
+                "Seleziona le metriche di valutazione",
+                options=["MAPE", "MAE", "MSE", "RMSE", "SMAPE"],
+                default=["MAPE", "MAE", "RMSE"]
+            )
+            with st.container():
+            st.subheader("🗓️ Scope")
+            st.write("(Periodo o finestra di validazione)")
+            aggregate_scope = st.checkbox("Valuta le performance su valori aggregati")
 
-        
         st.header("4. Forecast")
         with st.expander("📅 Parametri Forecast"):
             make_forecast = st.checkbox("Make forecast on future dates")
