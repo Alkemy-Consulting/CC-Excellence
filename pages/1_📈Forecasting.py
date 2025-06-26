@@ -37,6 +37,7 @@ with st.sidebar:
         file = st.file_uploader("Carica un file CSV", type=["csv"])
 
     df, date_col, target_col, freq, aggregation_method = None, None, None, "D", "sum"
+clip_negatives = replace_outliers = clean_zeros = False
     if file:
         df = pd.read_csv(file, delimiter=delimiter)
         columns = df.columns.tolist()
