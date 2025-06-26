@@ -23,24 +23,13 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("🔮 Forecasting con Prophet")
 
-    file = st.file_uploader("Carica il file CSV", type="csv")
+    # Sidebar completa
+    with st.sidebar:
+        st.header("Impostazioni Prophet")
 
-    if file:
-        df = pd.read_csv(file)
-        st.write("Anteprima dei dati:", df.head())
+        file = st.file_uploader("Carica il file CSV", type="csv")
 
-        all_cols = df.columns.tolist()
-        date_col = st.selectbox("Seleziona la colonna temporale", all_cols)
-        value_col = st.selectbox("Seleziona la colonna target", all_cols)
-
-        df[date_col] = pd.to_datetime(df[date_col])
-        df = df[[date_col, value_col]].dropna()
-        df = df.rename(columns={date_col: "ds", value_col: "y"})
-
-        # Sidebar avanzata
-        with st.sidebar:
-            st.header("Impostazioni Prophet")
-
+        if file:
             st.subheader("Stagionalità")
             yearly_seasonality = st.checkbox("Annuale", value=True)
             weekly_seasonality = st.checkbox("Settimanale", value=True)
@@ -55,6 +44,18 @@ with tabs[1]:
 
             st.subheader("Lancia il modello")
             launch_forecast = st.checkbox("🚀 Launch forecast")
+
+    if file:
+        df = pd.read_csv(file)
+        st.write("Anteprima dei dati:", df.head())
+
+        all_cols = df.columns.tolist()
+        date_col = st.selectbox("Seleziona la colonna temporale", all_cols)
+        value_col = st.selectbox("Seleziona la colonna target", all_cols)
+
+        df[date_col] = pd.to_datetime(df[date_col])
+        df = df[[date_col, value_col]].dropna()
+        df = df.rename(columns={date_col: "ds", value_col: "y"})
 
         if launch_forecast:
             model = Prophet(
