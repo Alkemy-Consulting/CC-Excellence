@@ -81,6 +81,11 @@ with tabs[1]:
                 freq = st.selectbox("Seleziona una nuova granularità", ["D", "W", "M"], index=["D", "W", "M"].index(detected_freq) if detected_freq in ["D", "W", "M"] else 0)
                 aggregation_method = st.selectbox("Metodo di aggregazione", ["sum", "mean", "max", "min"])
 
+            with st.expander("🧹 Data Cleaning"):
+                clean_zeros = st.checkbox("Rimuovi righe con zero nel target", value=True)
+                replace_outliers = st.checkbox("Sostituisci outlier (z-score > 3) con mediana", value=True)
+                clip_negatives = st.checkbox("Trasforma valori negativi in zero", value=True)
+
             st.header("2. Parametri Prophet")
             yearly_seasonality = st.checkbox("Stagionalità annuale", value=True)
             weekly_seasonality = st.checkbox("Stagionalità settimanale", value=True)
@@ -102,6 +107,16 @@ with tabs[1]:
 
         df[date_col] = pd.to_datetime(df[date_col], format=date_format)
         df = df[[date_col, target_col]].dropna()
+
+        # Data cleaning
+        if clean_zeros:
+            df = df[df[target_col] != 0]
+        if clip_negatives:
+            df[target_col] = df[target_col].clip(lower=0)
+        if replace_outliers:
+            y = df[target_col]
+            z = (y - y.mean()) / y.std()
+            df.loc[z.abs() > 3, target_col] = y.median()
 
         if aggregation_method == "sum":
             df = df.groupby(date_col).sum().reset_index()
