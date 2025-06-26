@@ -37,8 +37,7 @@ with st.sidebar:
         file = st.file_uploader("Carica un file CSV", type=["csv"])
 
         df, date_col, target_col, freq, aggregation_method = None, None, None, "D", "sum"
-    clip_negatives = replace_outliers = clean_zeros = False
-    clip_negatives = replace_outliers = clean_zeros = False
+        clip_negatives = replace_outliers = clean_zeros = False
     if file:
         df = pd.read_csv(file, delimiter=delimiter)
         columns = df.columns.tolist()
@@ -65,8 +64,8 @@ with st.sidebar:
             clip_negatives = st.checkbox("Trasforma valori negativi in zero", value=True)
 
         st.header("2. Modelling")
-        model_tab = st.selectbox("Seleziona il modello", ["Prophet", "ARIMA", "Holt-Winters"])
-                if model_tab == "Prophet":
+            model_tab = st.selectbox("Seleziona il modello", ["Prophet", "ARIMA", "Holt-Winters"])
+            if model_tab == "Prophet":
             with st.expander("🔧 Parametri Prophet"):
                 yearly_seasonality = st.checkbox("Stagionalità annuale", value=True)
                 weekly_seasonality = st.checkbox("Stagionalità settimanale", value=True)
