@@ -23,6 +23,16 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("🔮 Forecasting con Prophet")
 
+    df = None
+    columns = []
+    date_col = target_col = freq = fillna_method = None
+    yearly_seasonality = weekly_seasonality = daily_seasonality = False
+    seasonality_mode = "additive"
+    changepoint_prior_scale = 0.05
+    periods_input = 30
+    use_holidays = False
+    launch_forecast = False
+
     # Sidebar completa
     with st.sidebar:
         st.header("1. Carica i dati")
@@ -55,8 +65,7 @@ with tabs[1]:
             st.header("6. Esegui")
             launch_forecast = st.button("🚀 Avvia il forecast")
 
-    if file:
-        df = pd.read_csv(file)
+    if df is not None:
         st.write("Anteprima dei dati:", df.head())
 
         df[date_col] = pd.to_datetime(df[date_col])
