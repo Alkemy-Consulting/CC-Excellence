@@ -1,31 +1,26 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
-from prophet import Prophet
-from prophet.plot import plot_plotly, plot_components_plotly
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from prophet_module import (
+    build_prophet_model,
+    evaluate_forecast,
+    plot_forecast,
+    plot_components
+)
 
 st.title("📈 Contact Center Forecasting Tool")
 
-# Tabs per le sezioni
 tabs = st.tabs(["Exploratory", "Prophet", "ARIMA", "Holt-Winters"])
 
-# ===============================
-# TAB 1: EXPLORATORY (placeholder)
-# ===============================
 with tabs[0]:
     st.write("Prossimamente...")
 
-# ===============================
-# TAB 2: PROPHET
-# ===============================
 with tabs[1]:
     st.subheader("🔮 Forecasting con Prophet")
 
     df = None
     columns = []
-    date_col = target_col = freq = fillna_method = None
+    date_col = target_col = freq = None
     detected_freq = "D"
     aggregation_method = "sum"
     yearly_seasonality = weekly_seasonality = daily_seasonality = False
@@ -35,20 +30,14 @@ with tabs[1]:
     use_holidays = False
     launch_forecast = False
     delimiter = ","
-    date_format = "%Y-%m-%d"
 
-    # Sidebar completa
     with st.sidebar:
         st.header("1. Data")
         with st.expander("📂 Dataset"):
             delimiter = st.selectbox("Delimitatore CSV", [",", ";", "|", "\t"], index=0)
             user_friendly_format = st.selectbox("Formato data", [
-                "gg/mm/aaaa",
-                "gg/mm/aa",
-                "aaaa-mm-gg",
-                "mm/gg/aaaa",
-                "gg.mm.aaaa",
-                "aaaa/mm/gg"
+                "gg/mm/aaaa", "gg/mm/aa", "aaaa-mm-gg",
+                "mm/gg/aaaa", "gg.mm.aaaa", "aaaa/mm/gg"
             ], index=0)
             format_map = {
                 "gg/mm/aaaa": "%d/%m/%Y",
@@ -108,7 +97,6 @@ with tabs[1]:
         df[date_col] = pd.to_datetime(df[date_col], format=date_format)
         df = df[[date_col, target_col]].dropna()
 
-        # Data cleaning
         if clean_zeros:
             df = df[df[target_col] != 0]
         if clip_negatives:
@@ -131,59 +119,26 @@ with tabs[1]:
         df = df.set_index("ds").asfreq(freq).reset_index()
 
         if launch_forecast:
-            if use_holidays:
-                years = df['ds'].dt.year.unique()
-                holiday_dates = []
-                for year in years:
-                    holiday_dates.extend([
-                        f"{year}-01-01", f"{year}-01-06", f"{year}-04-25",
-                        f"{year}-05-01", f"{year}-06-02", f"{year}-08-15",
-                        f"{year}-11-01", f"{year}-12-08", f"{year}-12-25",
-                        f"{year}-12-26"
-                    ])
-                holidays = pd.DataFrame({
-                    'ds': pd.to_datetime(holiday_dates),
-                    'holiday': 'festività_italiane'
-                })
-                model = Prophet(
-                    yearly_seasonality=yearly_seasonality,
-                    weekly_seasonality=weekly_seasonality,
-                    daily_seasonality=daily_seasonality,
-                    seasonality_mode=seasonality_mode,
-                    changepoint_prior_scale=changepoint_prior_scale,
-                    holidays=holidays
-                )
-            else:
-                model = Prophet(
-                    yearly_seasonality=yearly_seasonality,
-                    weekly_seasonality=weekly_seasonality,
-                    daily_seasonality=daily_seasonality,
-                    seasonality_mode=seasonality_mode,
-                    changepoint_prior_scale=changepoint_prior_scale
-                )
-
-            model.fit(df)
-            future = model.make_future_dataframe(periods=periods_input, freq=freq)
-            forecast = model.predict(future)
+            model, forecast = build_prophet_model(
+                df=df,
+                freq=freq,
+                periods_input=periods_input,
+                use_holidays=use_holidays,
+                yearly=yearly_seasonality,
+                weekly=weekly_seasonality,
+                daily=daily_seasonality,
+                seasonality_mode=seasonality_mode,
+                changepoint_prior_scale=changepoint_prior_scale
+            )
 
             st.subheader("📊 Previsioni")
-            fig1 = plot_plotly(model, forecast)
-            st.plotly_chart(fig1)
+            st.plotly_chart(plot_forecast(model, forecast))
 
             st.subheader("📈 Componenti del modello")
-            fig2 = plot_components_plotly(model, forecast)
-            st.plotly_chart(fig2)
+            st.plotly_chart(plot_components(model, forecast))
 
             st.subheader("📏 Metriche di errore")
-            df_forecast = forecast[['ds', 'yhat']].set_index('ds')
-            df_actual = df.set_index('ds')
-            df_combined = df_actual.join(df_forecast, how='left').dropna()
-
-            mae = mean_absolute_error(df_combined['y'], df_combined['yhat'])
-            mse = mean_squared_error(df_combined['y'], df_combined['yhat'])
-            rmse = mse ** 0.5
-            mape = np.mean(np.abs((df_combined['y'] - df_combined['yhat']) / df_combined['y'])) * 100
-
+            mae, rmse, mape, df_combined = evaluate_forecast(df, forecast)
             st.write(f"**MAE:** {mae:.2f}")
             st.write(f"**RMSE:** {rmse:.2f}")
             st.write(f"**MAPE:** {mape:.2f}%")
@@ -197,9 +152,6 @@ with tabs[1]:
                 mime='text/csv'
             )
 
-# ===============================
-# TAB 3 e 4 (Placeholder)
-# ===============================
 with tabs[2]:
     st.write("Prossimamente...")
 
