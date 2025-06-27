@@ -4,6 +4,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import io
 import matplotlib.pyplot as plt
+import plotly.express as px
 
 st.set_page_config(page_title="Analisi Ritardi Operatori", layout="wide")
 st.title("Analisi Ritardi Operatori Customer Service")
@@ -63,7 +64,7 @@ if file_turni and file_consuntivo and file_mapping:
 
     # --- Join per confronto ---
     df_joined = df_cons.merge(
-        df_turni[["Data", "ID HubSpot_clean", "Ingresso_HHMM", "Smart"]],
+        df_turni["Data", "ID HubSpot_clean", "Ingresso_HHMM", "Smart"],
         how="left",
         left_on=["Data", "Operatore_clean"],
         right_on=["Data", "ID HubSpot_clean"]
@@ -110,16 +111,12 @@ if file_turni and file_consuntivo and file_mapping:
         st.metric("% Ritardi in Smart Working", f"{perc_smart:.1f}%")
         st.metric("Ritardo medio in Smart Working", f"{media_smart:.1f} min")
 
-    # --- Grafico barre affiancate per operatori ---
+    # --- Grafico interattivo con Plotly ---
     st.subheader("Grafico Ritardo Medio per Operatore")
-    media_op_sorted = media_op.fillna(0).sort_values(by="Presenza", ascending=False)
-    fig, ax = plt.subplots(figsize=(12, 6))
-    media_op_sorted.plot(kind="bar", ax=ax, color=["#1f77b4", "#ff7f0e"])
-    ax.set_ylabel("Ritardo medio (minuti)")
-    ax.set_xlabel("Operatore")
-    ax.set_title("Ritardo medio per tipo giornata")
-    ax.legend(title="Modalità")
-    st.pyplot(fig)
+    media_op_reset = media_op.reset_index().melt(id_vars="Nome Cognome", value_vars=["Presenza", "Smart Working"], var_name="Modalità", value_name="Ritardo medio (min)")
+    fig = px.bar(media_op_reset, x="Nome Cognome", y="Ritardo medio (min)", color="Modalità", barmode="group",
+                 labels={"Nome Cognome": "Operatore"}, height=500)
+    st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("Ritardi Gravi (> 60 min) > 3 volte")
     gravi = df_valida[df_valida["Deviazione_minuti"] > 60]
