@@ -14,6 +14,8 @@ from prophet_module import (
     plot_components
 )
 from exploratory_module import run_exploratory_analysis
+from arima_module import run_arima_model
+from holtwinters_module import run_holt_winters_model
 
 st.title("📈 Contact Center Forecasting Tool")
 
@@ -139,52 +141,59 @@ if file and launch_forecast:
     st.subheader(f"🔎 Risultati del modello: {model_tab}")
 
     if model_tab == "Prophet":
-        yearly_seasonality = True
-        weekly_seasonality = True
-        daily_seasonality = False
-        seasonality_mode = "additive"
-        changepoint_prior_scale = 0.05
-        periods_input = 30
-        use_holidays = False
-
-        model, forecast = build_prophet_model(
-            df=df,
-            freq=freq,
-            periods_input=periods_input,
-            use_holidays=use_holidays,
-            yearly=yearly_seasonality,
-            weekly=weekly_seasonality,
-            daily=daily_seasonality,
-            seasonality_mode=seasonality_mode,
-            changepoint_prior_scale=changepoint_prior_scale
-        )
-
-        st.subheader("📈 Previsioni")
-        st.plotly_chart(plot_forecast(model, forecast))
-
-        st.subheader("📁 Componenti del modello")
-        st.plotly_chart(plot_components(model, forecast))
-
-        st.subheader("🔏 Metriche di errore")
-        mae, rmse, mape, df_combined = evaluate_forecast(df, forecast)
-        st.write(f"**MAE:** {mae:.2f}")
-        st.write(f"**RMSE:** {rmse:.2f}")
-        st.write(f"**MAPE:** {mape:.2f}%")
-
-        st.subheader("📅 Esporta i risultati")
-        csv_export = forecast.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📆 Scarica il forecast in CSV",
-            data=csv_export,
-            file_name='forecast_prophet.csv',
-            mime='text/csv'
-        )
+        st.subheader("Parametri Prophet")
+        yearly_seasonality = st.checkbox("Yearly seasonality", value=True, key="prophet_yearly")
+        weekly_seasonality = st.checkbox("Weekly seasonality", value=True, key="prophet_weekly")
+        daily_seasonality = st.checkbox("Daily seasonality", value=False, key="prophet_daily")
+        seasonality_mode = st.selectbox("Seasonality mode", ["additive", "multiplicative"], index=0, key="prophet_mode")
+        changepoint_prior_scale = st.number_input("Changepoint prior scale", min_value=0.001, max_value=1.0, value=0.05, step=0.01, key="prophet_changepoint")
+        periods_input = st.number_input("Orizzonte forecast (periodi)", min_value=1, value=30, key="prophet_periods")
+        use_holidays = st.checkbox("Usa festività italiane", value=False, key="prophet_holidays")
+        if st.button("Esegui Prophet"):
+            model, forecast = build_prophet_model(
+                df=df,
+                freq=freq,
+                periods_input=periods_input,
+                use_holidays=use_holidays,
+                yearly=yearly_seasonality,
+                weekly=weekly_seasonality,
+                daily=daily_seasonality,
+                seasonality_mode=seasonality_mode,
+                changepoint_prior_scale=changepoint_prior_scale
+            )
+            st.subheader("📈 Previsioni")
+            st.plotly_chart(plot_forecast(model, forecast))
+            st.subheader("📁 Componenti del modello")
+            st.plotly_chart(plot_components(model, forecast))
+            st.subheader("🔏 Metriche di errore")
+            mae, rmse, mape, df_combined = evaluate_forecast(df, forecast)
+            st.write(f"**MAE:** {mae:.2f}")
+            st.write(f"**RMSE:** {rmse:.2f}")
+            st.write(f"**MAPE:** {mape:.2f}%")
+            st.subheader("📅 Esporta i risultati")
+            csv_export = forecast.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📆 Scarica il forecast in CSV",
+                data=csv_export,
+                file_name='forecast_prophet.csv',
+                mime='text/csv'
+            )
 
     elif model_tab == "ARIMA":
-       run_arima_model(df)
+        st.subheader("Parametri ARIMA")
+        p = st.number_input("p (AR)", min_value=0, max_value=10, value=1, key="arima_p")
+        d = st.number_input("d (Differencing)", min_value=0, max_value=2, value=1, key="arima_d")
+        q = st.number_input("q (MA)", min_value=0, max_value=10, value=0, key="arima_q")
+        forecast_steps = st.slider("Passi di previsione", 1, 24, 6, key="arima_steps")
+        if st.button("Esegui ARIMA"):
+            run_arima_model(df, p=p, d=d, q=q, forecast_steps=forecast_steps, target_col="y")
 
     elif model_tab == "Holt-Winters":
-        st.info("🔧 Modulo Holt-Winters in sviluppo. Presto disponibile.")
+        # Usa horizon se definito, altrimenti default 6
+        forecast_steps = horizon if 'horizon' in locals() else 6
+        run_holt_winters_model(df, horizon=forecast_steps, default_seasonal_periods=12)
 
     elif model_tab == "Exploratory":
-        run_exploratory_analysis(df)
+        st.subheader("Analisi Esplorativa")
+        if st.button("Esegui Analisi Esplorativa"):
+            run_exploratory_analysis(df)
