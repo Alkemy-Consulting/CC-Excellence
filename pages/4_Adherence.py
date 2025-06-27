@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import io
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Analisi Ritardi Operatori", layout="wide")
 st.title("Analisi Ritardi Operatori Customer Service")
@@ -87,6 +88,16 @@ if file_turni and file_consuntivo and file_mapping:
     media_op = df_valida.groupby(["Operatore", "Smart_flag"])["Deviazione_minuti"].mean().unstack()
     media_op.columns = ["Presenza", "Smart Working"]
     st.dataframe(media_op.round(2))
+
+    # --- Grafico barre per media ritardi ---
+    st.subheader("Grafico Ritardo Medio per Operatore")
+    fig, ax = plt.subplots(figsize=(12, 6))
+    media_op_sorted = media_op.fillna(0).sort_values(by="Presenza", ascending=False)
+    media_op_sorted.plot(kind="bar", ax=ax)
+    ax.set_ylabel("Ritardo medio (minuti)")
+    ax.set_xlabel("Operatore")
+    ax.set_title("Ritardo medio per tipo giornata")
+    st.pyplot(fig)
 
     st.subheader("Ritardi Gravi (> 60 min) > 3 volte")
     gravi = df_valida[df_valida["Deviazione_minuti"] > 60]
