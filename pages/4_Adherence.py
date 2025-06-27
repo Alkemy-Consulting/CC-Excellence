@@ -43,9 +43,9 @@ if file_turni and file_consuntivo and file_mapping:
     df_cons["Operatore"] = df_cons["Agent"]
 
     # --- Merge mapping ---
-    df_turni = df_turni.merge(df_map[["ID file turnistica_clean", "ID HubSpot_clean"]],
+    df_turni = df_turni.merge(df_map[["ID file turnistica_clean", "ID HubSpot_clean", "Nome Cognome"]],
                               how="left", left_on="Operatore_clean", right_on="ID file turnistica_clean")
-    df_cons = df_cons.merge(df_map[["ID file turnistica_clean", "ID HubSpot_clean"]],
+    df_cons = df_cons.merge(df_map[["ID file turnistica_clean", "ID HubSpot_clean", "Nome Cognome"]],
                             how="left", left_on="Operatore_clean", right_on="ID HubSpot_clean")
 
     # --- Parse date e orari ---
@@ -79,13 +79,17 @@ if file_turni and file_consuntivo and file_mapping:
     df_valida["Smart_flag"] = df_valida["Smart"].fillna(0).astype(int)
     df_valida["Fuori_orario"] = df_valida["Deviazione_minuti"].abs() > tolleranza
 
+    # --- Escludi operatori specifici ---
+    da_escludere = ["facchetti", "ciceri", "bellandi", "morise"]
+    df_valida = df_valida[~df_valida["Operatore_clean"].str.contains('|'.join(da_escludere), case=False, na=False)]
+
     # --- Filtro dinamico per mese ---
     mesi_disponibili = df_valida["Data"].dt.month.unique()
     mese_selezionato = st.selectbox("Seleziona il mese da analizzare", sorted(mesi_disponibili))
     df_valida = df_valida[df_valida["Data"].dt.month == mese_selezionato]
 
     st.subheader("Deviazione Media per Operatore")
-    media_op = df_valida.groupby(["Operatore", "Smart_flag"])["Deviazione_minuti"].mean().unstack()
+    media_op = df_valida.groupby(["Nome Cognome", "Smart_flag"])["Deviazione_minuti"].mean().unstack()
     media_op.columns = ["Presenza", "Smart Working"]
     st.dataframe(media_op.round(2))
 
@@ -106,9 +110,16 @@ if file_turni and file_consuntivo and file_mapping:
         st.metric("% Ritardi in Smart Working", f"{perc_smart:.1f}%")
         st.metric("Ritardo medio in Smart Working", f"{media_smart:.1f} min")
 
-    # --- Grafico semplice barre ---
+    # --- Grafico barre affiancate per operatori ---
     st.subheader("Grafico Ritardo Medio per Operatore")
-    st.bar_chart(media_op.fillna(0))
+    media_op_sorted = media_op.fillna(0).sort_values(by="Presenza", ascending=False)
+    fig, ax = plt.subplots(figsize=(12, 6))
+    media_op_sorted.plot(kind="bar", ax=ax, color=["#1f77b4", "#ff7f0e"])
+    ax.set_ylabel("Ritardo medio (minuti)")
+    ax.set_xlabel("Operatore")
+    ax.set_title("Ritardo medio per tipo giornata")
+    ax.legend(title="Modalità")
+    st.pyplot(fig)
 
     st.subheader("Ritardi Gravi (> 60 min) > 3 volte")
     gravi = df_valida[df_valida["Deviazione_minuti"] > 60]
@@ -124,7 +135,7 @@ if file_turni and file_consuntivo and file_mapping:
 
     # --- Download file unificato ---
     df_export = df_valida[[
-        "Operatore", "Data", "FirstActivityStart_HHMM", "Ingresso_HHMM", "Deviazione_minuti", "Smart_flag"
+        "Operatore", "Nome Cognome", "Data", "FirstActivityStart_HHMM", "Ingresso_HHMM", "Deviazione_minuti", "Smart_flag"
     ]].rename(columns={
         "FirstActivityStart_HHMM": "Ingresso Effettivo",
         "Ingresso_HHMM": "Ingresso Previsto",
