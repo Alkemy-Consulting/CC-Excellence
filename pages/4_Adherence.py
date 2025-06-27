@@ -38,11 +38,7 @@ if file_turni and file_consuntivo and file_mapping:
     df_map["ID HubSpot_clean"] = df_map["ID HubSpot"].astype(str).str.lower().str.strip()
 
     df_turni["Operatore_clean"] = df_turni["Operatore"].astype(str).str.lower().str.strip()
-    if "Operatore" in df_cons.columns:
-        df_cons["Operatore_clean"] = df_cons["Operatore"].astype(str).str.lower().str.strip()
-    else:
-        st.error("Colonna 'Operatore' non trovata nel file consuntivo.")
-        st.stop()
+    df_cons["Operatore_clean"] = df_cons["Agent"].astype(str).str.lower().str.strip()
 
     # --- Merge mapping ---
     df_turni = df_turni.merge(df_map[["ID file turnistica_clean", "ID HubSpot_clean"]],
