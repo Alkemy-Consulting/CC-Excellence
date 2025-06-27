@@ -70,10 +70,10 @@ if file_turni and file_consuntivo and file_mapping:
     right_on=["Data", "ID HubSpot_clean"]
 )
 
-    # --- Calcolo ritardi ---
-    df_joined["Ingresso_previsto"] = pd.to_datetime(df_joined["Ingresso_HHMM"].astype(str), errors='coerce')
-    df_joined["Ingresso_effettivo"] = pd.to_datetime(df_joined["FirstActivityStart_HHMM"].astype(str), errors='coerce')
-    df_joined["Deviazione_minuti"] = (df_joined["Ingresso_effettivo"] - df_joined["Ingresso_previsto"]).dt.total_seconds() / 60
+   # --- Calcolo ritardi ---
+   df_joined["Ingresso_previsto"] = pd.to_datetime(df_joined["Ingresso_HHMM"].astype(str), errors='coerce')
+   df_joined["Ingresso_effettivo"] = pd.to_datetime(df_joined["FirstActivityStart_HHMM"].astype(str), errors='coerce')
+   df_joined["Deviazione_minuti"] = (df_joined["Ingresso_effettivo"] - df_joined["Ingresso_previsto"]).dt.total_seconds() / 60
 
     # --- Flag fuori orario ---
     df_valida = df_joined[df_joined["Deviazione_minuti"].notna()].copy()
@@ -111,24 +111,26 @@ if file_turni and file_consuntivo and file_mapping:
         st.metric("% Ritardi in Smart Working", f"{perc_smart:.1f}%")
         st.metric("Ritardo medio in Smart Working", f"{media_smart:.1f} min")
 
-    # --- Grafico interattivo con Plotly ---
-    st.subheader("Grafico Ritardo Medio per Operatore")
-    media_op_reset = media_op.reset_index().melt(id_vars="Nome Cognome", value_vars=["Presenza", "Smart Working"], var_name="Modalità", value_name="Ritardo medio (min)")
-    fig = px.bar(media_op_reset, x="Nome Cognome", y="Ritardo medio (min)", color="Modalità", barmode="group",
-                 labels={"Nome Cognome": "Operatore"}, height=500)
-    st.plotly_chart(fig, use_container_width=True)
+# --- Trendline percentuale fuori orario ---
+df_trend = df_valida.groupby(["Mese", "Smart_flag"]).agg(
+    Totale=("Deviazione_minuti", "count"),
+    Ritardi=("Fuori_orario", "sum")
+).reset_index()
+df_trend["Percentuale Ritardi"] = (df_trend["Ritardi"] / df_trend["Totale"]) * 100
+df_trend["Modalità"] = df_trend["Smart_flag"].map({0: "Presenza", 1: "Smart Working"})
 
-    st.subheader("Ritardi Gravi (> 60 min) > 3 volte")
-    gravi = df_valida[df_valida["Deviazione_minuti"] > 60]
-    count_gravi = gravi.groupby("Operatore").size()
-    seriali = count_gravi[count_gravi > 3].reset_index()
-    seriali.columns = ["Operatore", "Occorrenze"]
-    st.dataframe(seriali)
+import plotly.express as px
+fig_trend = px.line(
+    df_trend,
+    x="Mese",
+    y="Percentuale Ritardi",
+    color="Modalità",
+    markers=True,
+    labels={"Percentuale Ritardi": "% Ritardi"},
+    title="Trend % Ritardi Mensili"
+)
+st.plotly_chart(fig_trend, use_container_width=True)
 
-    st.subheader("Distribuzione Fuori Orario")
-    dist = df_valida.groupby(["Smart_flag", "Fuori_orario"]).size().unstack().fillna(0)
-    dist.index = dist.index.map({0: "Presenza", 1: "Smart Working"})
-    st.bar_chart(dist)
 
     # --- Download file unificato ---
     df_export = df_valida[[
