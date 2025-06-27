@@ -181,7 +181,7 @@ if file and launch_forecast:
         )
 
     elif model_tab == "ARIMA":
-        st.info("🔧 Modulo ARIMA in sviluppo. Presto disponibile.")
+        run_arima_model(df)
 
     elif model_tab == "Holt-Winters":
         st.info("🔧 Modulo Holt-Winters in sviluppo. Presto disponibile.")
