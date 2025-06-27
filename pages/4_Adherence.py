@@ -87,17 +87,27 @@ if file_turni and file_consuntivo and file_mapping:
     # --- Filtro dinamico per mese ---
     mesi_disponibili = df_valida["Data"].dt.month.unique()
     mese_selezionato = st.selectbox("Seleziona il mese da analizzare", sorted(mesi_disponibili))
-    df_valida = df_valida[df_valida["Data"].dt.month == mese_selezionato]
+    df_valida_mese = df_valida[df_valida["Data"].dt.month == mese_selezionato]
 
     st.subheader("Deviazione Media per Operatore")
-    media_op = df_valida.groupby(["Nome Cognome", "Smart_flag"])["Deviazione_minuti"].mean().unstack()
+    media_op = df_valida_mese.groupby(["Nome Cognome", "Smart_flag"])["Deviazione_minuti"].mean().unstack()
     media_op.columns = ["Presenza", "Smart Working"]
     st.dataframe(media_op.round(2))
 
+    fig_media_op = px.bar(
+        media_op.reset_index().melt(id_vars="Nome Cognome", value_name="Deviazione media (min)", var_name="Modalità"),
+        x="Nome Cognome",
+        y="Deviazione media (min)",
+        color="Modalità",
+        barmode="group",
+        title="Deviazione Media per Operatore"
+    )
+    st.plotly_chart(fig_media_op, use_container_width=True)
+
     # --- Metriche riepilogative ---
     st.subheader("Metriche sintetiche")
-    tot_pres = df_valida[df_valida["Smart_flag"] == 0]
-    tot_smart = df_valida[df_valida["Smart_flag"] == 1]
+    tot_pres = df_valida_mese[df_valida_mese["Smart_flag"] == 0]
+    tot_smart = df_valida_mese[df_valida_mese["Smart_flag"] == 1]
     perc_pres = (tot_pres["Fuori_orario"].sum() / len(tot_pres)) * 100 if len(tot_pres) > 0 else 0
     perc_smart = (tot_smart["Fuori_orario"].sum() / len(tot_smart)) * 100 if len(tot_smart) > 0 else 0
     media_pres = tot_pres["Deviazione_minuti"].mean() if len(tot_pres) > 0 else 0
