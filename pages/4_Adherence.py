@@ -89,15 +89,26 @@ if file_turni and file_consuntivo and file_mapping:
     media_op.columns = ["Presenza", "Smart Working"]
     st.dataframe(media_op.round(2))
 
-    # --- Grafico barre per media ritardi ---
+    # --- Metriche riepilogative ---
+    st.subheader("Metriche sintetiche")
+    tot_pres = df_valida[df_valida["Smart_flag"] == 0]
+    tot_smart = df_valida[df_valida["Smart_flag"] == 1]
+    perc_pres = (tot_pres["Fuori_orario"].sum() / len(tot_pres)) * 100 if len(tot_pres) > 0 else 0
+    perc_smart = (tot_smart["Fuori_orario"].sum() / len(tot_smart)) * 100 if len(tot_smart) > 0 else 0
+    media_pres = tot_pres["Deviazione_minuti"].mean() if len(tot_pres) > 0 else 0
+    media_smart = tot_smart["Deviazione_minuti"].mean() if len(tot_smart) > 0 else 0
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("% Ritardi in Presenza", f"{perc_pres:.1f}%")
+        st.metric("Ritardo medio in Presenza", f"{media_pres:.1f} min")
+    with col2:
+        st.metric("% Ritardi in Smart Working", f"{perc_smart:.1f}%")
+        st.metric("Ritardo medio in Smart Working", f"{media_smart:.1f} min")
+
+    # --- Grafico semplice barre ---
     st.subheader("Grafico Ritardo Medio per Operatore")
-    fig, ax = plt.subplots(figsize=(12, 6))
-    media_op_sorted = media_op.fillna(0).sort_values(by="Presenza", ascending=False)
-    media_op_sorted.plot(kind="bar", ax=ax)
-    ax.set_ylabel("Ritardo medio (minuti)")
-    ax.set_xlabel("Operatore")
-    ax.set_title("Ritardo medio per tipo giornata")
-    st.pyplot(fig)
+    st.bar_chart(media_op.fillna(0))
 
     st.subheader("Ritardi Gravi (> 60 min) > 3 volte")
     gravi = df_valida[df_valida["Deviazione_minuti"] > 60]
