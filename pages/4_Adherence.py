@@ -64,11 +64,11 @@ if file_turni and file_consuntivo and file_mapping:
 
     # --- Join per confronto ---
     df_joined = df_cons.merge(
-        df_turni["Data", "ID HubSpot_clean", "Ingresso_HHMM", "Smart"],
-        how="left",
-        left_on=["Data", "Operatore_clean"],
-        right_on=["Data", "ID HubSpot_clean"]
-    )
+    df_turni[["Data", "ID HubSpot_clean", "Ingresso_HHMM", "Smart"]],
+    how="left",
+    left_on=["Data", "Operatore_clean"],
+    right_on=["Data", "ID HubSpot_clean"]
+)
 
     # --- Calcolo ritardi ---
     df_joined["Ingresso_previsto"] = pd.to_datetime(df_joined["Ingresso_HHMM"].astype(str), errors='coerce')
