@@ -189,7 +189,6 @@ if file and launch_forecast:
             run_arima_model(df, p=p, d=d, q=q, forecast_steps=forecast_steps, target_col="y")
 
     elif model_tab == "Holt-Winters":
-        # Usa horizon se definito, altrimenti default 6
         forecast_steps = horizon if 'horizon' in locals() else 6
         run_holt_winters_model(df, horizon=forecast_steps, default_seasonal_periods=12)
 
