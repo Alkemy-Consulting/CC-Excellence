@@ -64,16 +64,16 @@ if file_turni and file_consuntivo and file_mapping:
 
     # --- Join per confronto ---
     df_joined = df_cons.merge(
-    df_turni[["Data", "ID HubSpot_clean", "Ingresso_HHMM", "Smart"]],
-    how="left",
-    left_on=["Data", "Operatore_clean"],
-    right_on=["Data", "ID HubSpot_clean"]
-)
+        df_turni[["Data", "ID HubSpot_clean", "Ingresso_HHMM", "Smart"]],
+        how="left",
+        left_on=["Data", "Operatore_clean"],
+        right_on=["Data", "ID HubSpot_clean"]
+    )
 
-   # --- Calcolo ritardi ---
-   df_joined["Ingresso_previsto"] = pd.to_datetime(df_joined["Ingresso_HHMM"].astype(str), errors='coerce')
-   df_joined["Ingresso_effettivo"] = pd.to_datetime(df_joined["FirstActivityStart_HHMM"].astype(str), errors='coerce')
-   df_joined["Deviazione_minuti"] = (df_joined["Ingresso_effettivo"] - df_joined["Ingresso_previsto"]).dt.total_seconds() / 60
+    # --- Calcolo ritardi ---
+    df_joined["Ingresso_previsto"] = pd.to_datetime(df_joined["Ingresso_HHMM"].astype(str), errors='coerce')
+    df_joined["Ingresso_effettivo"] = pd.to_datetime(df_joined["FirstActivityStart_HHMM"].astype(str), errors='coerce')
+    df_joined["Deviazione_minuti"] = (df_joined["Ingresso_effettivo"] - df_joined["Ingresso_previsto"]).dt.total_seconds() / 60
 
     # --- Flag fuori orario ---
     df_valida = df_joined[df_joined["Deviazione_minuti"].notna()].copy()
@@ -111,26 +111,25 @@ if file_turni and file_consuntivo and file_mapping:
         st.metric("% Ritardi in Smart Working", f"{perc_smart:.1f}%")
         st.metric("Ritardo medio in Smart Working", f"{media_smart:.1f} min")
 
-# --- Trendline percentuale fuori orario ---
-df_trend = df_valida.groupby(["Mese", "Smart_flag"]).agg(
-    Totale=("Deviazione_minuti", "count"),
-    Ritardi=("Fuori_orario", "sum")
-).reset_index()
-df_trend["Percentuale Ritardi"] = (df_trend["Ritardi"] / df_trend["Totale"]) * 100
-df_trend["Modalità"] = df_trend["Smart_flag"].map({0: "Presenza", 1: "Smart Working"})
+    # --- Trendline percentuale fuori orario ---
+    df_valida["Mese"] = df_valida["Data"].dt.month
+    df_trend = df_valida.groupby(["Mese", "Smart_flag"]).agg(
+        Totale=("Deviazione_minuti", "count"),
+        Ritardi=("Fuori_orario", "sum")
+    ).reset_index()
+    df_trend["Percentuale Ritardi"] = (df_trend["Ritardi"] / df_trend["Totale"]) * 100
+    df_trend["Modalità"] = df_trend["Smart_flag"].map({0: "Presenza", 1: "Smart Working"})
 
-import plotly.express as px
-fig_trend = px.line(
-    df_trend,
-    x="Mese",
-    y="Percentuale Ritardi",
-    color="Modalità",
-    markers=True,
-    labels={"Percentuale Ritardi": "% Ritardi"},
-    title="Trend % Ritardi Mensili"
-)
-st.plotly_chart(fig_trend, use_container_width=True)
-
+    fig_trend = px.line(
+        df_trend,
+        x="Mese",
+        y="Percentuale Ritardi",
+        color="Modalità",
+        markers=True,
+        labels={"Percentuale Ritardi": "% Ritardi"},
+        title="Trend % Ritardi Mensili"
+    )
+    st.plotly_chart(fig_trend, use_container_width=True)
 
     # --- Download file unificato ---
     df_export = df_valida[[
