@@ -50,7 +50,12 @@ if file_turni and file_consuntivo and file_mapping:
     df_turni["Data"] = pd.to_datetime(df_turni["Data"], errors='coerce')
     df_cons["Data"] = pd.to_datetime(df_cons["Date"], errors='coerce')
     df_turni["Ingresso_HHMM"] = df_turni["Ingresso"].apply(parse_time)
-    df_cons["FirstActivityStart_HHMM"] = pd.to_timedelta(df_cons["FirstActivityStart"].astype(float), unit="s").apply(lambda x: (datetime(1900, 1, 1) + x).time())
+
+    if "Schedule — First Activity Start" in df_cons.columns:
+        df_cons["FirstActivityStart_HHMM"] = pd.to_timedelta(df_cons["Schedule — First Activity Start"].astype(float), unit="s").apply(lambda x: (datetime(1900, 1, 1) + x).time())
+    else:
+        st.error("Colonna 'Schedule — First Activity Start' non trovata nel file consuntivo.")
+        st.stop()
 
     df_turni["Smart"] = df_turni["Smart"].fillna(0)
 
