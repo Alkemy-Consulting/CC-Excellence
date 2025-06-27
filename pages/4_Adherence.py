@@ -39,6 +39,7 @@ if file_turni and file_consuntivo and file_mapping:
 
     df_turni["Operatore_clean"] = df_turni["Operatore"].astype(str).str.lower().str.strip()
     df_cons["Operatore_clean"] = df_cons["Agent"].astype(str).str.lower().str.strip()
+    df_cons["Operatore"] = df_cons["Agent"]
 
     # --- Merge mapping ---
     df_turni = df_turni.merge(df_map[["ID file turnistica_clean", "ID HubSpot_clean"]],
