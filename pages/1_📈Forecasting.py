@@ -92,6 +92,7 @@ with st.sidebar:
         st.header("4. Forecast")
         with st.expander("📅 Parametri Forecast"):
             make_forecast = st.checkbox("Make forecast on future dates")
+            horizon = 30  # Default value for horizon
             if make_forecast:
                 horizon = st.number_input("Orizzonte (numero di periodi)", min_value=1, value=30)
                 if df is not None and not df.empty:
@@ -110,6 +111,6 @@ if file and forecast_button:
     elif model_tab == "ARIMA":
         run_arima_model(df, p=1, d=1, q=0, forecast_steps=horizon, target_col=target_col)
     elif model_tab == "Holt-Winters":
-        run_holt_winters_model(df, horizon=horizon, default_seasonal_periods=12)
+        run_holt_winters_model(df, date_col=date_col, target_col=target_col, horizon=horizon, default_seasonal_periods=12)
     elif model_tab == "Exploratory":
         run_exploratory_analysis(df)

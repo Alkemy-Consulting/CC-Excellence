@@ -6,11 +6,13 @@ from typing import Tuple, Optional
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 import plotly.graph_objects as go
 
-def run_holt_winters_model(df: pd.DataFrame, horizon: int = 6, default_seasonal_periods: int = 12):
+def run_holt_winters_model(df: pd.DataFrame, date_col: str, target_col: str, horizon: int = 6, default_seasonal_periods: int = 12):
     """
     Streamlit-friendly function to run Holt-Winters forecasting with full UI, plotting, and parameter selection.
     Args:
-        df: DataFrame with columns ['ds', 'y'] (ds: datetime, y: target)
+        df: DataFrame with user-specified columns for date and target.
+        date_col: column name for dates
+        target_col: column name for target values
         horizon: forecast steps
         default_seasonal_periods: default value for seasonal periods
     """
@@ -29,9 +31,9 @@ def run_holt_winters_model(df: pd.DataFrame, horizon: int = 6, default_seasonal_
         smoothing_seasonal = None
         optimized = True
 
-    # Esecuzione automatica del modello senza bottone
+    # Use user-specified column names directly
     fitted, forecast, params = holt_winters_forecast(
-        df.set_index("ds")['y'],
+        df.set_index(date_col)[target_col],
         forecast_periods=horizon,
         seasonal_periods=seasonal_periods,
         trend='add',
@@ -48,7 +50,7 @@ def run_holt_winters_model(df: pd.DataFrame, horizon: int = 6, default_seasonal_
     st.json(params)
 
     # Calcolo metriche di errore selezionate
-    y_true = df.set_index("ds")['y']
+    y_true = df.set_index(date_col)[target_col]
     y_pred = fitted
     metrics = st.session_state.get('selected_metrics', ["MAE", "RMSE", "MAPE"])
     st.subheader("🔏 Metriche di errore")
