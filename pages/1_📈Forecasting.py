@@ -2,15 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-from modules.prophet_module import (
-    build_prophet_model,
-    evaluate_forecast,
-    plot_forecast,
-    plot_components
-)
-from modules.exploratory_module import run_exploratory_analysis
+from modules.prophet_module import run_prophet_model
 from modules.arima_module import run_arima_model
 from modules.holtwinters_module import run_holt_winters_model
+from modules.exploratory_module import run_exploratory_analysis
 
 st.title("📈 Contact Center Forecasting Tool")
 
@@ -66,7 +61,6 @@ with st.sidebar:
         model_tab = st.selectbox("Seleziona il modello", ["Prophet", "ARIMA", "Holt-Winters", "Exploratory"])
 
         st.header("3. Backtesting")
-
         with st.expander("📊 Split"):
             use_cv = st.checkbox("Usa Cross-Validation")
             if use_cv:
@@ -79,7 +73,7 @@ with st.sidebar:
                 fold_horizon = st.number_input("Orizzonte per fold (in periodi)", min_value=1, value=30)
 
             if df is not None and not df.empty and not use_cv:
-                test_start = df[date_col].iloc[int(len(df)*0.8)]
+                test_start = df[date_col].iloc[int(len(df) * 0.8)]
                 test_end = df[date_col].iloc[-1]
                 train_pct = round(len(df[df[date_col] < test_start]) / len(df) * 100, 2)
                 st.success(f"Il test set va da **{test_start.date()}** a **{test_end.date()}** – il training usa il {train_pct}% dei dati")
@@ -105,4 +99,17 @@ with st.sidebar:
                     end_date = start_date + pd.tseries.frequencies.to_offset(freq) * (horizon - 1)
                     st.success(f"Il forecast coprirà il periodo da **{start_date.date()}** a **{end_date.date()}**")
 
-        launch_forecast = st.button("🚀 Avvia il forecast")
+        # Bottone per lanciare il forecast
+        forecast_button = st.button("🚀 Avvia il forecast")
+
+# Chiamata al modello selezionato (fuori dalla sidebar)
+if file and forecast_button:
+    st.header("Risultati del Forecast")
+    if model_tab == "Prophet":
+        run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast)
+    elif model_tab == "ARIMA":
+        run_arima_model(df, p=1, d=1, q=0, forecast_steps=horizon, target_col=target_col)
+    elif model_tab == "Holt-Winters":
+        run_holt_winters_model(df, horizon=horizon, default_seasonal_periods=12)
+    elif model_tab == "Exploratory":
+        run_exploratory_analysis(df)
