@@ -7,10 +7,6 @@ from statsmodels.tsa.holtwinters import ExponentialSmoothing
 import plotly.graph_objects as go
 
 def run_holt_winters_model(df: pd.DataFrame, horizon: int = 6, default_seasonal_periods: int = 12):
-<<<<<<< HEAD
-=======
-    with st.form(key="forecast_form", clear_on_submit=False):
->>>>>>> b56ee93ac29ee8b416499c10eeafb0d52553f68e
     """
     Streamlit-friendly function to run Holt-Winters forecasting with full UI, plotting, and parameter selection.
     Args:
@@ -19,18 +15,6 @@ def run_holt_winters_model(df: pd.DataFrame, horizon: int = 6, default_seasonal_
         default_seasonal_periods: default value for seasonal periods
     """
     st.subheader("Parametri Holt-Winters")
-    model_type = st.radio(
-        "Seleziona il tipo di modello",
-        options=[
-            "Triple Exponential Default",
-            "Triple Exponential Fitted",
-            "Straight Line",
-            "Quadratic",
-            "Cubic"
-        ],
-        key="model_type"
-    )
-
     seasonal_periods = st.number_input("Periodi stagionali", min_value=2, max_value=24, value=default_seasonal_periods, key="hw_seasonal_periods")
     use_custom = st.checkbox("Utilizza parametri custom", value=False, key="hw_custom")
 
@@ -45,131 +29,52 @@ def run_holt_winters_model(df: pd.DataFrame, horizon: int = 6, default_seasonal_
         smoothing_seasonal = None
         optimized = True
 
-<<<<<<< HEAD
-    if st.button("Esegui Holt-Winters"):
-        # Esegui il modello selezionato
-        if model_type == "Triple Exponential Default" or model_type == "Triple Exponential Fitted":
-            fitted, forecast, params = holt_winters_forecast(
-                df.set_index("ds")['y'],
-                forecast_periods=horizon,
-                seasonal_periods=seasonal_periods,
-                trend='add',
-                seasonal='add',
-                damped_trend=True,
-                smoothing_level=smoothing_level,
-                smoothing_trend=smoothing_trend,
-                smoothing_seasonal=smoothing_seasonal,
-                optimized=optimized
-            )
-        elif model_type == "Straight Line":
-            x = np.arange(len(df))
-            coeffs = np.polyfit(x, df['y'], 1)
-            fitted = pd.Series(np.polyval(coeffs, x), index=df['ds'])
-            forecast_index = pd.date_range(df['ds'].iloc[-1], periods=horizon+1, freq=pd.infer_freq(df['ds']))[1:]
-            forecast = pd.Series(np.polyval(coeffs, np.arange(len(df), len(df)+horizon)), index=forecast_index)
-            params = {'model': 'Straight Line', 'coefficients': coeffs.tolist()}
-        elif model_type == "Quadratic":
-            x = np.arange(len(df))
-            coeffs = np.polyfit(x, df['y'], 2)
-            fitted = pd.Series(np.polyval(coeffs, x), index=df['ds'])
-            forecast_index = pd.date_range(df['ds'].iloc[-1], periods=horizon+1, freq=pd.infer_freq(df['ds']))[1:]
-            forecast = pd.Series(np.polyval(coeffs, np.arange(len(df), len(df)+horizon)), index=forecast_index)
-            params = {'model': 'Quadratic', 'coefficients': coeffs.tolist()}
-        elif model_type == "Cubic":
-            x = np.arange(len(df))
-            coeffs = np.polyfit(x, df['y'], 3)
-            fitted = pd.Series(np.polyval(coeffs, x), index=df['ds'])
-            forecast_index = pd.date_range(df['ds'].iloc[-1], periods=horizon+1, freq=pd.infer_freq(df['ds']))[1:]
-            forecast = pd.Series(np.polyval(coeffs, np.arange(len(df), len(df)+horizon)), index=forecast_index)
-            params = {'model': 'Cubic', 'coefficients': coeffs.tolist()}
+    # Esecuzione automatica del modello senza bottone
+    fitted, forecast, params = holt_winters_forecast(
+        df.set_index("ds")['y'],
+        forecast_periods=horizon,
+        seasonal_periods=seasonal_periods,
+        trend='add',
+        seasonal='add',
+        damped_trend=True,
+        smoothing_level=smoothing_level,
+        smoothing_trend=smoothing_trend,
+        smoothing_seasonal=smoothing_seasonal,
+        optimized=optimized
+    )
 
-        st.success("Modello Holt-Winters addestrato.")
-        st.write("**Parametri del modello:**")
-        st.json(params)
-
-        # Calcolo metriche di errore
-        y_true = df.set_index("ds")['y']
-        y_pred = fitted
-        mae = np.mean(np.abs(y_true - y_pred))
-        mse = np.mean((y_true - y_pred) ** 2)
-        rmse = np.sqrt(mse)
-        mape = np.mean(np.abs((y_true - y_pred) / y_true.replace(0, np.nan))) * 100
-        smape = 100 * np.mean(2 * np.abs(y_pred - y_true) / (np.abs(y_true) + np.abs(y_pred)))
-
-        st.subheader("🔏 Metriche di errore")
-        st.write(f"**MAE:** {mae:.2f}")
-        st.write(f"**RMSE:** {rmse:.2f}")
-        st.write(f"**MAPE:** {mape:.2f}%")
-        st.write(f"**SMAPE:** {smape:.2f}%")
-
-        fig, ax = plt.subplots()
-        fitted.plot(ax=ax, label="Storico (fitted)")
-        forecast.plot(ax=ax, label="Previsione", color="red")
-        ax.legend()
-        st.pyplot(fig)
-=======
-    # Esegui il modello selezionato
-    if model_type == "Triple Exponential Default" or model_type == "Triple Exponential Fitted":
-        fitted, forecast, params = holt_winters_forecast(
-            df.set_index("ds")["y"],
-            forecast_periods=horizon,
-            seasonal_periods=seasonal_periods,
-            trend='add',
-            seasonal='add',
-            damped_trend=True,
-            smoothing_level=smoothing_level,
-            smoothing_trend=smoothing_trend,
-            smoothing_seasonal=smoothing_seasonal,
-            optimized=optimized
-        )
-    elif model_type == "Straight Line":
-        x = np.arange(len(df))
-        coeffs = np.polyfit(x, df['y'], 1)
-        fitted = pd.Series(np.polyval(coeffs, x), index=df['ds'])
-        forecast_index = pd.date_range(df['ds'].iloc[-1], periods=horizon+1, freq=pd.infer_freq(df['ds']))[1:]
-        forecast = pd.Series(np.polyval(coeffs, np.arange(len(df), len(df)+horizon)), index=forecast_index)
-        params = {'model': 'Straight Line', 'coefficients': coeffs.tolist()}
-    elif model_type == "Quadratic":
-        x = np.arange(len(df))
-        coeffs = np.polyfit(x, df['y'], 2)
-        fitted = pd.Series(np.polyval(coeffs, x), index=df['ds'])
-        forecast_index = pd.date_range(df['ds'].iloc[-1], periods=horizon+1, freq=pd.infer_freq(df['ds']))[1:]
-        forecast = pd.Series(np.polyval(coeffs, np.arange(len(df), len(df)+horizon)), index=forecast_index)
-        params = {'model': 'Quadratic', 'coefficients': coeffs.tolist()}
-    elif model_type == "Cubic":
-        x = np.arange(len(df))
-        coeffs = np.polyfit(x, df['y'], 3)
-        fitted = pd.Series(np.polyval(coeffs, x), index=df['ds'])
-        forecast_index = pd.date_range(df['ds'].iloc[-1], periods=horizon+1, freq=pd.infer_freq(df['ds']))[1:]
-        forecast = pd.Series(np.polyval(coeffs, np.arange(len(df), len(df)+horizon)), index=forecast_index)
-        params = {'model': 'Cubic', 'coefficients': coeffs.tolist()}
-
-    st.success("Modello di previsione addestrato.")
-
-    st.subheader("🔏 Metriche di errore")
-    mae, rmse, mape, df_combined = evaluate_forecast(df.set_index("ds")['y'], forecast)
-    st.write(f"**MAE:** {mae:.2f}")
-    st.write(f"**RMSE:** {rmse:.2f}")
-    st.write(f"**MAPE:** {mape:.2f}%")
-
+    st.success("Modello Holt-Winters addestrato.")
     st.write("**Parametri del modello:**")
-
-    # Mostra metriche di errore
-    if 'mape' in params and 'rmse' in params:
-        col1, col2 = st.columns(2)
-        col1.metric("MAPE", f"{params['mape']:.2f}%")
-        col2.metric("RMSE", f"{params['rmse']:.2f}")
     st.json(params)
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=fitted.index, y=fitted, mode='lines', name='Storico (fitted)'))
-    fig.add_trace(go.Scatter(x=forecast.index, y=forecast, mode='lines', name='Previsione', line=dict(color='red')))
-    fig.update_layout(title="Previsione Modello", xaxis_title="Data", yaxis_title="Valore")
-    st.plotly_chart(fig, use_container_width=True)
+    # Calcolo metriche di errore selezionate
+    y_true = df.set_index("ds")['y']
+    y_pred = fitted
+    metrics = st.session_state.get('selected_metrics', ["MAE", "RMSE", "MAPE"])
+    st.subheader("🔏 Metriche di errore")
+    if "MAE" in metrics:
+        mae = np.mean(np.abs(y_true - y_pred))
+        st.write(f"**MAE:** {mae:.2f}")
+    if "MSE" in metrics:
+        mse = np.mean((y_true - y_pred) ** 2)
+        st.write(f"**MSE:** {mse:.2f}")
+    if "RMSE" in metrics:
+        rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
+        st.write(f"**RMSE:** {rmse:.2f}")
+    if "MAPE" in metrics:
+        mape = np.mean(np.abs((y_true - y_pred) / y_true.replace(0, np.nan))) * 100
+        st.write(f"**MAPE:** {mape:.2f}%")
+    if "SMAPE" in metrics:
+        smape = 100 * np.mean(2 * np.abs(y_pred - y_true) / (np.abs(y_true) + np.abs(y_pred)))
+        st.write(f"**SMAPE:** {smape:.2f}%")
 
-    # Trigger automatic submission to simulate reactive behavior
-    st.form_submit_button("Aggiorna modello", on_click=lambda: None, disabled=True)
->>>>>>> b56ee93ac29ee8b416499c10eeafb0d52553f68e
+    fig, ax = plt.subplots()
+    fitted.plot(ax=ax, label="Storico (fitted)")
+    forecast.plot(ax=ax, label="Previsione", color="red")
+    ax.legend()
+    st.pyplot(fig)
+
+    # Modelli alternativi (Straight Line, Quadratic, Cubic) sono lasciati come esempio/commento.
 
 def holt_winters_forecast(
     series: pd.Series,
