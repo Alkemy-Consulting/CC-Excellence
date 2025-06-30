@@ -30,7 +30,6 @@ def check_data_size(df):
         st.stop()
 
 def aggregate_data(df, date_col, target_col, freq, aggregation_method):
-    """Aggregate the DataFrame based on the selected frequency and aggregation method."""
     df[date_col] = pd.to_datetime(df[date_col])
     df = df.set_index(date_col).resample(freq).agg({target_col: aggregation_method}).reset_index()
     return df
@@ -106,6 +105,10 @@ with st.sidebar:
                     cv_end_date = st.date_input("Data fine CV")
                 n_folds = st.number_input("Numero di folds", min_value=2, max_value=20, value=5)
                 fold_horizon = st.number_input("Orizzonte per fold (in periodi)", min_value=1, value=30)
+            else:
+                cv_start_date = cv_end_date = None
+                n_folds = 5
+                fold_horizon = 30
 
             if df is not None and not df.empty and not use_cv:
                 test_start = df[date_col].iloc[int(len(df) * 0.8)]
@@ -134,40 +137,41 @@ with st.sidebar:
                     start_date = df[date_col].max() + pd.tseries.frequencies.to_offset(freq)
                     end_date = start_date + pd.tseries.frequencies.to_offset(freq) * (horizon - 1)
                     st.success(f"Il forecast coprirà il periodo da **{start_date.date()}** a **{end_date.date()}**")
-
         forecast_button = st.button("🚀 Avvia il forecast")
 
 # Main action
 if file and forecast_button:
-    # Aggregate data
     df = aggregate_data(df, date_col, target_col, freq, aggregation_method)
-
-    # Cleaning preferences
     cleaning_preferences = {
         'remove_zeros': clean_zeros,
         'remove_negatives': clip_negatives,
         'replace_outliers': replace_outliers
     }
-
-    # Clean data
     df = clean_data(df, cleaning_preferences)
     check_data_size(df)
 
     if model_tab == "Prophet":
-    run_prophet_model(
-        df,
-        date_col,
-        target_col,
-        freq,
-        horizon,
-        make_forecast=make_forecast,
-        use_cv=use_cv,
-        fold_horizon=fold_horizon
-    )
+        run_prophet_model(
+            df,
+            date_col,
+            target_col,
+            freq,
+            horizon,
+            make_forecast=make_forecast,
+            use_cv=use_cv,
+            cv_start_date=cv_start_date,
+            cv_end_date=cv_end_date,
+            n_folds=n_folds,
+            fold_horizon=fold_horizon,
+            test_start_date=test_start if not use_cv else None,
+            test_end_date=test_end if not use_cv else None
+        )
 
     elif model_tab == "ARIMA":
         run_arima_model(df, p=1, d=1, q=0, forecast_steps=horizon, target_col=target_col)
+
     elif model_tab == "Holt-Winters":
         run_holt_winters_model(df, date_col=date_col, target_col=target_col, horizon=horizon, default_seasonal_periods=12)
+
     elif model_tab == "Exploratory":
         run_exploratory_analysis(df)
