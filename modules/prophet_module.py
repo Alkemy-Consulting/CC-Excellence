@@ -1,180 +1,175 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+from prophet import Prophet
+from prophet.plot import plot_plotly, plot_components_plotly
+from prophet.diagnostics import cross_validation, performance_metrics
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-from modules.prophet_module import run_prophet_model
-from modules.arima_module import run_arima_model
-from modules.holtwinters_module import run_holt_winters_model
-from modules.exploratory_module import run_exploratory_analysis
+def build_and_forecast_prophet(df, freq='D', periods=30, use_holidays=False, yearly=True, weekly=False, daily=False, seasonality_mode='additive', changepoint_prior_scale=0.05):
+    holidays = None
+    if use_holidays:
+        years = df['ds'].dt.year.unique()
+        holiday_dates = [f"{year}-12-25" for year in years]  # Example: Christmas
+        holidays = pd.DataFrame({'ds': pd.to_datetime(holiday_dates), 'holiday': 'holiday'})
 
-st.title("📈 Contact Center Forecasting Tool")
+    model = Prophet(
+        yearly_seasonality=yearly,
+        weekly_seasonality=weekly,
+        daily_seasonality=daily,
+        seasonality_mode=seasonality_mode,
+        changepoint_prior_scale=changepoint_prior_scale,
+        holidays=holidays
+    )
 
-# Funzioni di supporto
-def clean_data(df, cleaning_preferences):
-    if cleaning_preferences['remove_zeros']:
-        df = df[df[target_col] != 0]
+    model.fit(df)
+    future = model.make_future_dataframe(periods=periods, freq=freq)
+    forecast = model.predict(future)
+    return model, forecast
 
-    if cleaning_preferences['remove_negatives']:
-        df[target_col] = df[target_col].apply(lambda x: max(x, 0))
+def evaluate_forecast(df, forecast):
+    df = df.copy()
+    forecast = forecast.copy()
 
-    if cleaning_preferences['replace_outliers']:
-        z_scores = (df[target_col] - df[target_col].mean()) / df[target_col].std()
-        median_val = df[target_col].median()
-        df.loc[np.abs(z_scores) > 3, target_col] = median_val
+    df['ds'] = pd.to_datetime(df['ds'])
+    forecast['ds'] = pd.to_datetime(forecast['ds'])
 
-    return df
+    # Keep only overlapping dates
+    eval_df = df[df['ds'].isin(forecast['ds'])].set_index('ds')
+    pred_df = forecast.set_index('ds').loc[eval_df.index]
 
-def check_data_size(df):
-    if len(df) < 10:
-        st.error("Il dataset è troppo piccolo dopo la pulizia. Aggiungi più dati o modifica le regole di pulizia.")
-        st.stop()
+    df_combined = eval_df.join(pred_df[['yhat']], how='inner')
 
-def aggregate_data(df, date_col, target_col, freq, aggregation_method):
-    df[date_col] = pd.to_datetime(df[date_col])
-    df = df.set_index(date_col).resample(freq).agg({target_col: aggregation_method}).reset_index()
-    return df
+    mae = mean_absolute_error(df_combined['y'], df_combined['yhat'])
+    rmse = mean_squared_error(df_combined['y'], df_combined['yhat']) ** 0.5
+    mape = np.mean(np.abs((df_combined['y'] - df_combined['yhat']) / df_combined['y'])) * 100
 
-# Sidebar
-with st.sidebar:
-    st.header("1. Dataset")
-    with st.expander("📂 File import"):
-        delimiter = st.selectbox("Delimitatore CSV", [",", ";", "|", "\t"], index=0)
-        user_friendly_format = st.selectbox("Formato data", [
-            "gg/mm/aaaa", "gg/mm/aa", "aaaa-mm-gg",
-            "mm/gg/aaaa", "gg.mm.aaaa", "aaaa/mm/gg"
-        ], index=1)
-        format_map = {
-            "gg/mm/aaaa": "%d/%m/%Y",
-            "gg/mm/aa": "%d/%m/%y",
-            "aaaa-mm-gg": "%Y-%m-%d",
-            "mm/gg/aaaa": "%m/%d/%Y",
-            "gg.mm.aaaa": "%d.%m.%Y",
-            "aaaa/mm/gg": "%Y/%m/%d"
-        }
-        date_format = format_map[user_friendly_format]
-        file = st.file_uploader("Carica un file CSV", type=["csv"])
-
-    df, date_col, target_col, freq, aggregation_method = None, None, None, "D", "sum"
-    clip_negatives = replace_outliers = clean_zeros = False
-
-    if file:
-        df = pd.read_csv(file, delimiter=delimiter)
-        columns = df.columns.tolist()
-
-        with st.expander("🧹 Colonne"):
-            date_col = st.selectbox("Colonna data", options=columns)
-            target_col = st.selectbox("Colonna target", options=columns, index=1 if len(columns) > 1 else 0)
-
-        with st.expander("⏱️ Granularità"):
-            try:
-                df[date_col] = pd.to_datetime(df[date_col], format=date_format)
-                df_sorted = df.sort_values(by=date_col)
-                inferred = pd.infer_freq(df_sorted[date_col])
-                detected_freq = inferred if inferred else "D"
-            except:
-                detected_freq = "D"
-            st.text(f"Granularità rilevata: {detected_freq}")
-            freq_map = {
-                "Daily": "D",
-                "Weekly": "W",
-                "Monthly": "M",
-                "Quarterly": "Q",
-                "Yearly": "Y"
-            }
-            user_friendly_freq = {v: k for k, v in freq_map.items()}.get(detected_freq, "Daily")
-            selected_granularity = st.selectbox("Seleziona una nuova granularità", list(freq_map.keys()), index=list(freq_map.keys()).index(user_friendly_freq) if user_friendly_freq in freq_map.keys() else 0)
-            freq = freq_map[selected_granularity]
-            aggregation_method = st.selectbox("Metodo di aggregazione", ["sum", "mean", "max", "min"])
-
-        with st.expander("🧹 Data Cleaning"):
-            clean_zeros = st.checkbox("Rimuovi righe con zero nel target", value=True)
-            replace_outliers = st.checkbox("Sostituisci outlier (z-score > 3) con mediana", value=True)
-            clip_negatives = st.checkbox("Trasforma valori negativi in zero", value=True)
-
-        st.header("2. Modello")
-        model_tab = st.selectbox("Seleziona il modello", ["Prophet", "ARIMA", "Holt-Winters", "Exploratory"])
-
-        st.header("3. Backtesting")
-        with st.expander("📊 Split"):
-            use_cv = st.checkbox("Usa Cross-Validation")
-            if use_cv:
-                col1, col2 = st.columns(2)
-                with col1:
-                    cv_start_date = st.date_input("Data inizio CV")
-                with col2:
-                    cv_end_date = st.date_input("Data fine CV")
-                n_folds = st.number_input("Numero di folds", min_value=2, max_value=20, value=5)
-                fold_horizon = st.number_input("Orizzonte per fold (in periodi)", min_value=1, value=30)
-            else:
-                cv_start_date = cv_end_date = None
-                n_folds = 5
-                fold_horizon = 30
-
-            if df is not None and not df.empty and not use_cv:
-                test_start = df[date_col].iloc[int(len(df) * 0.8)]
-                test_end = df[date_col].iloc[-1]
-                train_pct = round(len(df[df[date_col] < test_start]) / len(df) * 100, 2)
-                st.success(f"Il test set va da **{test_start.date()}** a **{test_end.date()}** – il training usa il {train_pct}% dei dati")
-
-        with st.expander("📏 Metriche"):
-            selected_metrics = st.multiselect(
-                "Seleziona le metriche di valutazione",
-                options=["MAPE", "MAE", "MSE", "RMSE", "SMAPE"],
-                default=["MAPE", "MAE", "RMSE"]
-            )
-
-        with st.expander("🗓️ Intervalli"):
-            st.write("(Periodo o finestra di validazione)")
-            aggregate_scope = st.checkbox("Valuta le performance su valori aggregati")
-
-        st.header("4. Forecast")
-        with st.expander("📅 Parametri Forecast"):
-            make_forecast = st.checkbox("Make forecast on future dates")
-            horizon = 30
-            if make_forecast:
-                horizon = st.number_input("Orizzonte (numero di periodi)", min_value=1, value=30)
-                if df is not None and not df.empty:
-                    start_date = df[date_col].max() + pd.tseries.frequencies.to_offset(freq)
-                    end_date = start_date + pd.tseries.frequencies.to_offset(freq) * (horizon - 1)
-                    st.success(f"Il forecast coprirà il periodo da **{start_date.date()}** a **{end_date.date()}**")
-        forecast_button = st.button("🚀 Avvia il forecast")
-
-# Main action
-# Imposta valori di default per test_start/test_end in caso non vengano inizializzati nel blocco Split
-    test_start = test_end = None
-
-    if file and forecast_button:
-    df = aggregate_data(df, date_col, target_col, freq, aggregation_method)
-    cleaning_preferences = {
-        'remove_zeros': clean_zeros,
-        'remove_negatives': clip_negatives,
-        'replace_outliers': replace_outliers
+    return {
+        'MAE': mae,
+        'RMSE': rmse,
+        'MAPE': mape,
+        'combined': df_combined
     }
-    df = clean_data(df, cleaning_preferences)
-    check_data_size(df)
 
-    if model_tab == "Prophet":
-        run_prophet_model(
-            df,
-            date_col,
-            target_col,
-            freq,
-            horizon,
-            make_forecast=make_forecast,
-            use_cv=use_cv,
-            cv_start_date=cv_start_date,
-            cv_end_date=cv_end_date,
-            n_folds=n_folds,
-            fold_horizon=fold_horizon,
-            test_start_date=test_start if not use_cv else None,
-            test_end_date=test_end if not use_cv else None
-        )
+def plot_forecast(model, forecast):
+    return plot_plotly(model, forecast)
 
-    elif model_tab == "ARIMA":
-        run_arima_model(df, p=1, d=1, q=0, forecast_steps=horizon, target_col=target_col)
+def plot_components(model, forecast):
+    return plot_components_plotly(model, forecast)
 
-    elif model_tab == "Holt-Winters":
-        run_holt_winters_model(df, date_col=date_col, target_col=target_col, horizon=horizon, default_seasonal_periods=12)
+def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, use_cv=False, cv_start_date=None, cv_end_date=None, n_folds=5, fold_horizon=30, test_start_date=None, test_end_date=None):
+    st.subheader("Prophet Forecast")
 
-    elif model_tab == "Exploratory":
-        run_exploratory_analysis(df)
+    # Preprocessing
+    prophet_df = df[[date_col, target_col]].rename(columns={date_col: 'ds', target_col: 'y'})
+    prophet_df['ds'] = pd.to_datetime(prophet_df['ds'])
+
+    if use_cv:
+        st.markdown("### Cross-Validation Prophet")
+
+        try:
+            total_days = (cv_end_date - cv_start_date).days
+            initial_days = total_days - (n_folds - 1) * fold_horizon
+
+            if initial_days <= 0:
+                st.error("Intervallo troppo corto per il numero di fold selezionato.")
+                return
+
+            df_cv_range = prophet_df[
+                (prophet_df['ds'] >= cv_start_date) & (prophet_df['ds'] <= cv_end_date)
+            ].copy()
+
+            st.info(f"Dati usati per CV: {df_cv_range['ds'].min().date()} → {df_cv_range['ds'].max().date()}")
+
+            # Prophet >=1.1 required
+            model = Prophet()
+
+            df_cv = cross_validation(
+                model,
+                df=df_cv_range,
+                model,
+                initial=f"{initial_days} days",
+                period=f"{fold_horizon} days",
+                horizon=f"{fold_horizon} days"
+            )
+            df_perf = performance_metrics(df_cv)
+            st.dataframe(df_perf[['horizon', 'mae', 'rmse', 'mape']].round(2))
+
+            # Sintesi delle metriche
+            st.write("### CV Metrics (media su tutti i fold)")
+            st.write({
+                'MAE': df_perf['mae'].mean(),
+                'RMSE': df_perf['rmse'].mean(),
+                'MAPE': df_perf['mape'].mean()
+            })
+
+        except Exception as e:
+            st.error(f"Errore durante la cross-validation: {e}")
+
+    else:
+        if not make_forecast:
+            st.markdown("### Backtesting personalizzato")
+
+            if test_start_date and test_end_date:
+                test_mask = (prophet_df['ds'] >= test_start_date) & (prophet_df['ds'] <= test_end_date)
+                test_df = prophet_df[test_mask]
+                train_df = prophet_df[prophet_df['ds'] < test_start_date]
+            else:
+                split_point = int(len(prophet_df) * 0.8)
+                train_df = prophet_df.iloc[:split_point]
+                test_df = prophet_df.iloc[split_point:]
+
+            st.info(f"Training: {train_df['ds'].min().date()} → {train_df['ds'].max().date()}
+Test: {test_df['ds'].min().date()} → {test_df['ds'].max().date()}")
+
+            model = Prophet()
+            model.fit(train_df)
+
+            future = model.make_future_dataframe(periods=len(test_df), freq=freq)
+            forecast = model.predict(future)
+            forecast = forecast[forecast['ds'].isin(test_df['ds'])]
+
+            results = evaluate_forecast(test_df, forecast)
+            st.plotly_chart(plot_plotly(model, forecast), use_container_width=True)
+            st.plotly_chart(plot_components_plotly(model, forecast), use_container_width=True)
+            st.write("### Evaluation Metrics")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("MAE", f"{results['MAE']:.2f}")
+            col2.metric("RMSE", f"{results['RMSE']:.2f}")
+            col3.metric("MAPE", f"{results['MAPE']:.2f}%")
+
+            if st.button("📥 Scarica Forecast in Excel"):
+                forecast_out = forecast.copy()
+                forecast_out = forecast_out[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
+                st.download_button(
+                    label="Download .xlsx",
+                    data=forecast_out.to_excel(index=False, engine='openpyxl'),
+                    file_name="forecast.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+        else:
+            model, forecast = build_and_forecast_prophet(
+                prophet_df,
+                freq=freq,
+                periods=horizon
+            )
+            st.markdown("### Forecast futuro")
+            st.plotly_chart(plot_forecast(model, forecast), use_container_width=True)
+            st.plotly_chart(plot_components(model, forecast), use_container_width=True)
+            metrics = evaluate_forecast(prophet_df, forecast)
+            st.write("### Evaluation Metrics")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("MAE", f"{metrics['MAE']:.2f}")
+            col2.metric("RMSE", f"{metrics['RMSE']:.2f}")
+            col3.metric("MAPE", f"{metrics['MAPE']:.2f}%")
+
+            if st.button("📥 Scarica Forecast in Excel"):
+                forecast_out = forecast.copy()
+                forecast_out = forecast_out[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
+                st.download_button(
+                    label="Download .xlsx",
+                    data=forecast_out.to_excel(index=False, engine='openpyxl'),
+                    file_name="forecast.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
