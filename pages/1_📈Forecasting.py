@@ -9,7 +9,33 @@ from modules.exploratory_module import run_exploratory_analysis
 
 st.title("📈 Contact Center Forecasting Tool")
 
-# Sidebar comune
+# Funzioni di supporto
+def clean_data(df, cleaning_preferences):
+    if cleaning_preferences['remove_zeros']:
+        df = df[df[target_col] != 0]
+
+    if cleaning_preferences['remove_negatives']:
+        df[target_col] = df[target_col].apply(lambda x: max(x, 0))
+
+    if cleaning_preferences['replace_outliers']:
+        z_scores = (df[target_col] - df[target_col].mean()) / df[target_col].std()
+        median_val = df[target_col].median()
+        df.loc[np.abs(z_scores) > 3, target_col] = median_val
+
+    return df
+
+def check_data_size(df):
+    if len(df) < 10:
+        st.error("Il dataset è troppo piccolo dopo la pulizia. Aggiungi più dati o modifica le regole di pulizia.")
+        st.stop()
+
+def aggregate_data(df, date_col, target_col, freq, aggregation_method):
+    """Aggregate the DataFrame based on the selected frequency and aggregation method."""
+    df[date_col] = pd.to_datetime(df[date_col])
+    df = df.set_index(date_col).resample(freq).agg({target_col: aggregation_method}).reset_index()
+    return df
+
+# Sidebar
 with st.sidebar:
     st.header("1. Dataset")
     with st.expander("📂 File import"):
@@ -49,7 +75,16 @@ with st.sidebar:
             except:
                 detected_freq = "D"
             st.text(f"Granularità rilevata: {detected_freq}")
-            freq = st.selectbox("Seleziona una nuova granularità", ["D", "W", "M"], index=["D", "W", "M"].index(detected_freq) if detected_freq in ["D", "W", "M"] else 0)
+            freq_map = {
+                "Daily": "D",
+                "Weekly": "W",
+                "Monthly": "M",
+                "Quarterly": "Q",
+                "Yearly": "Y"
+            }
+            user_friendly_freq = {v: k for k, v in freq_map.items()}.get(detected_freq, "Daily")
+            selected_granularity = st.selectbox("Seleziona una nuova granularità", list(freq_map.keys()), index=list(freq_map.keys()).index(user_friendly_freq) if user_friendly_freq in freq_map.keys() else 0)
+            freq = freq_map[selected_granularity]
             aggregation_method = st.selectbox("Metodo di aggregazione", ["sum", "mean", "max", "min"])
 
         with st.expander("🧹 Data Cleaning"):
@@ -92,7 +127,7 @@ with st.sidebar:
         st.header("4. Forecast")
         with st.expander("📅 Parametri Forecast"):
             make_forecast = st.checkbox("Make forecast on future dates")
-            horizon = 30  # Default value for horizon
+            horizon = 30
             if make_forecast:
                 horizon = st.number_input("Orizzonte (numero di periodi)", min_value=1, value=30)
                 if df is not None and not df.empty:
@@ -100,14 +135,36 @@ with st.sidebar:
                     end_date = start_date + pd.tseries.frequencies.to_offset(freq) * (horizon - 1)
                     st.success(f"Il forecast coprirà il periodo da **{start_date.date()}** a **{end_date.date()}**")
 
-        # Bottone per lanciare il forecast
         forecast_button = st.button("🚀 Avvia il forecast")
 
-# Chiamata al modello selezionato (fuori dalla sidebar)
+# Main action
 if file and forecast_button:
-    st.header("Risultati del Forecast")
+    # Aggregate data
+    df = aggregate_data(df, date_col, target_col, freq, aggregation_method)
+
+    # Cleaning preferences
+    cleaning_preferences = {
+        'remove_zeros': clean_zeros,
+        'remove_negatives': clip_negatives,
+        'replace_outliers': replace_outliers
+    }
+
+    # Clean data
+    df = clean_data(df, cleaning_preferences)
+    check_data_size(df)
+
     if model_tab == "Prophet":
-        run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast)
+    run_prophet_model(
+        df,
+        date_col,
+        target_col,
+        freq,
+        horizon,
+        make_forecast=make_forecast,
+        use_cv=use_cv,
+        fold_horizon=fold_horizon
+    )
+
     elif model_tab == "ARIMA":
         run_arima_model(df, p=1, d=1, q=0, forecast_steps=horizon, target_col=target_col)
     elif model_tab == "Holt-Winters":
