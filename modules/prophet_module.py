@@ -5,6 +5,7 @@ from prophet import Prophet
 from prophet.plot import plot_plotly, plot_components_plotly
 from prophet.diagnostics import cross_validation, performance_metrics
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+import io
 
 def build_and_forecast_prophet(df, freq='D', periods=30, use_holidays=False, yearly=True, weekly=False, daily=False, seasonality_mode='additive', changepoint_prior_scale=0.05):
     holidays = None
@@ -34,7 +35,6 @@ def evaluate_forecast(df, forecast):
     df['ds'] = pd.to_datetime(df['ds'])
     forecast['ds'] = pd.to_datetime(forecast['ds'])
 
-    # Keep only overlapping dates
     eval_df = df[df['ds'].isin(forecast['ds'])].set_index('ds')
     pred_df = forecast.set_index('ds').loc[eval_df.index]
 
@@ -60,13 +60,21 @@ def plot_components(model, forecast):
 def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, use_cv=False, cv_start_date=None, cv_end_date=None, n_folds=5, fold_horizon=30, test_start_date=None, test_end_date=None):
     st.subheader("Prophet Forecast")
 
-    # Preprocessing
     prophet_df = df[[date_col, target_col]].rename(columns={date_col: 'ds', target_col: 'y'})
     prophet_df['ds'] = pd.to_datetime(prophet_df['ds'])
 
+    def download_forecast_excel(forecast_df):
+        forecast_out = forecast_df[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
+        csv = forecast_out.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Scarica Forecast in CSV",
+            data=csv,
+            file_name="forecast.csv",
+            mime="text/csv"
+        )
+
     if use_cv:
         st.markdown("### Cross-Validation Prophet")
-
         try:
             total_days = (cv_end_date - cv_start_date).days
             initial_days = total_days - (n_folds - 1) * fold_horizon
@@ -81,12 +89,10 @@ def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, us
 
             st.info(f"Dati usati per CV: {df_cv_range['ds'].min().date()} → {df_cv_range['ds'].max().date()}")
 
-            # Prophet >=1.1 required
             model = Prophet()
+            model.fit(df_cv_range)
 
             df_cv = cross_validation(
-                model,
-                df=df_cv_range,
                 model,
                 initial=f"{initial_days} days",
                 period=f"{fold_horizon} days",
@@ -95,7 +101,6 @@ def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, us
             df_perf = performance_metrics(df_cv)
             st.dataframe(df_perf[['horizon', 'mae', 'rmse', 'mape']].round(2))
 
-            # Sintesi delle metriche
             st.write("### CV Metrics (media su tutti i fold)")
             st.write({
                 'MAE': df_perf['mae'].mean(),
@@ -119,8 +124,7 @@ def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, us
                 train_df = prophet_df.iloc[:split_point]
                 test_df = prophet_df.iloc[split_point:]
 
-            st.info(f"Training: {train_df['ds'].min().date()} → {train_df['ds'].max().date()}
-Test: {test_df['ds'].min().date()} → {test_df['ds'].max().date()}")
+            st.info(f"Training: {train_df['ds'].min().date()} → {train_df['ds'].max().date()}\nTest: {test_df['ds'].min().date()} → {test_df['ds'].max().date()}")
 
             model = Prophet()
             model.fit(train_df)
@@ -138,15 +142,7 @@ Test: {test_df['ds'].min().date()} → {test_df['ds'].max().date()}")
             col2.metric("RMSE", f"{results['RMSE']:.2f}")
             col3.metric("MAPE", f"{results['MAPE']:.2f}%")
 
-            if st.button("📥 Scarica Forecast in Excel"):
-                forecast_out = forecast.copy()
-                forecast_out = forecast_out[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
-                st.download_button(
-                    label="Download .xlsx",
-                    data=forecast_out.to_excel(index=False, engine='openpyxl'),
-                    file_name="forecast.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+            download_forecast_excel(forecast)
 
         else:
             model, forecast = build_and_forecast_prophet(
@@ -164,12 +160,4 @@ Test: {test_df['ds'].min().date()} → {test_df['ds'].max().date()}")
             col2.metric("RMSE", f"{metrics['RMSE']:.2f}")
             col3.metric("MAPE", f"{metrics['MAPE']:.2f}%")
 
-            if st.button("📥 Scarica Forecast in Excel"):
-                forecast_out = forecast.copy()
-                forecast_out = forecast_out[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
-                st.download_button(
-                    label="Download .xlsx",
-                    data=forecast_out.to_excel(index=False, engine='openpyxl'),
-                    file_name="forecast.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+            download_forecast_excel(forecast)
