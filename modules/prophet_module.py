@@ -6,6 +6,7 @@ from prophet.plot import plot_plotly, plot_components_plotly
 from prophet.diagnostics import cross_validation, performance_metrics
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import io
+from modules.metrics_module import compute_metrics
 
 def build_and_forecast_prophet(df, freq='D', periods=30, use_holidays=False, yearly=True, weekly=False, daily=False, seasonality_mode='additive', changepoint_prior_scale=0.05):
     holidays = None
@@ -57,7 +58,7 @@ def plot_forecast(model, forecast):
 def plot_components(model, forecast):
     return plot_components_plotly(model, forecast)
 
-def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, use_cv=False, cv_start_date=None, cv_end_date=None, n_folds=5, fold_horizon=30, test_start_date=None, test_end_date=None):
+def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, use_cv=False, cv_start_date=None, cv_end_date=None, n_folds=5, fold_horizon=30, test_start_date=None, test_end_date=None, selected_metrics=None, aggregate_scope=False):
     st.subheader("Prophet Forecast")
 
     prophet_df = df[[date_col, target_col]].rename(columns={date_col: 'ds', target_col: 'y'})
@@ -159,5 +160,12 @@ def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, us
             col1.metric("MAE", f"{metrics['MAE']:.2f}")
             col2.metric("RMSE", f"{metrics['RMSE']:.2f}")
             col3.metric("MAPE", f"{metrics['MAPE']:.2f}%")
+
+            y_true = test_df["y"].values
+            y_pred = forecast["yhat"].values
+            metrics = compute_metrics(y_true, y_pred, selected_metrics or ["MAE","RMSE","MAPE"])
+            # mostra solo quelle richieste
+            for name, val in metrics.items():
+                st.metric(name, f"{val:.2f}{'%' if name.endswith('PE') else ''}")
 
             download_forecast_excel(forecast)

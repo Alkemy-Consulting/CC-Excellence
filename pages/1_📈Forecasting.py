@@ -10,18 +10,15 @@ from modules.exploratory_module import run_exploratory_analysis
 st.title("📈 Contact Center Forecasting Tool")
 
 # Funzioni di supporto
-def clean_data(df, cleaning_preferences):
-    if cleaning_preferences['remove_zeros']:
+def clean_data(df, cleaning_prefs, target_col):
+    df = df.copy()
+    if cleaning_prefs['remove_zeros']:
         df = df[df[target_col] != 0]
-
-    if cleaning_preferences['remove_negatives']:
-        df[target_col] = df[target_col].apply(lambda x: max(x, 0))
-
-    if cleaning_preferences['replace_outliers']:
-        z_scores = (df[target_col] - df[target_col].mean()) / df[target_col].std()
-        median_val = df[target_col].median()
-        df.loc[np.abs(z_scores) > 3, target_col] = median_val
-
+    if cleaning_prefs['replace_outliers']:
+        z = (df[target_col] - df[target_col].mean())/df[target_col].std()
+        df.loc[np.abs(z)>3, target_col] = df[target_col].median()
+    if cleaning_prefs['remove_negatives']:
+        df[target_col] = df[target_col].clip(lower=0)
     return df
 
 def check_data_size(df):
@@ -147,7 +144,7 @@ if file and forecast_button:
         'remove_negatives': clip_negatives,
         'replace_outliers': replace_outliers
     }
-    df = clean_data(df, cleaning_preferences)
+    df = clean_data(df, cleaning_preferences, target_col)
     check_data_size(df)
 
     if model_tab == "Prophet":
