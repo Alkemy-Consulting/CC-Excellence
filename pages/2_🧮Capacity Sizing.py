@@ -8,7 +8,7 @@ from scipy.stats import poisson
 st.set_page_config(layout="wide")
 
 st.title("🧮 Capacity Sizing Tool")
-st.markdown("Questo strumento calcola il numero di operatori necessari per gestire i volumi di chiamate in base ai KPI aziendali.")
+st.markdown("Questo strumento calcola il numero di operatori necessari (fabbisogno) per gestire i volumi di chiamate, sia in entrata (inbound) che in uscita (outbound), in base ai KPI e ai costi operativi.")
 
 # --- Funzioni di Calcolo ---
 
@@ -56,216 +56,257 @@ def erlang_c(arrival_rate, aht, service_level_target, answer_time_target):
         else:
             return num_agents, service_level, occupancy
 
-def calculate_inbound_staffing(df, aht, sl_target, answer_time, shrinkage, max_occupancy):
+def calculate_inbound_staffing(df, aht, sl_target, answer_time, shrinkage, max_occupancy, cost_per_hour):
     """
     Calcola il fabbisogno di personale per le chiamate inbound.
     """
     results = []
     for _, row in df.iterrows():
         calls = row['Numero di chiamate']
-        # Calcola il tasso di arrivo orario basato sulla durata dello slot
-        arrival_rate_per_hour = calls * (3600 / row['slot_duration_seconds'])
+        slot_duration_hours = row['slot_duration_seconds'] / 3600
+        arrival_rate_per_hour = calls / slot_duration_hours if slot_duration_hours > 0 else 0
         
         raw_agents, sl_achieved, occupancy = erlang_c(arrival_rate_per_hour, aht, sl_target, answer_time)
         
-        # Applica lo shrinkage
-        agents_with_shrinkage = raw_agents / (1 - shrinkage)
+        agents_with_shrinkage = raw_agents / (1 - shrinkage) if (1 - shrinkage) > 0 else raw_agents
         
-        # Adeguamento per la massima occupazione
         if occupancy > max_occupancy and max_occupancy > 0:
             required_for_occupancy = (arrival_rate_per_hour * aht / 3600) / max_occupancy
-            agents_with_shrinkage = max(agents_with_shrinkage, required_for_occupancy / (1-shrinkage))
+            agents_with_shrinkage = max(agents_with_shrinkage, required_for_occupancy / (1 - shrinkage))
+
+        final_agents = np.ceil(agents_with_shrinkage)
+        total_cost = final_agents * cost_per_hour * slot_duration_hours
 
         results.append({
             'Data': row['Data'],
-            'Giorno': row['Giorno'], # <-- Aggiunta la colonna mancante
+            'Giorno': row['Giorno'],
             'Time slot': row['Time slot'],
             'Numero di chiamate': calls,
             'Operatori necessari (raw)': raw_agents,
-            'Operatori necessari (con shrinkage)': np.ceil(agents_with_shrinkage),
+            'Operatori necessari (con shrinkage)': final_agents,
             'Service Level Stimato': sl_achieved,
-            'Occupazione Stimata': occupancy
+            'Occupazione Stimata': occupancy,
+            'Costo Stimato (€)': total_cost
         })
     return pd.DataFrame(results)
 
-
-def calculate_outbound_staffing(df, cph, shrinkage):
+def calculate_outbound_staffing(df, cph, shrinkage, cost_per_hour):
     """
     Calcola il fabbisogno di personale per le chiamate outbound.
     """
-    df['Operatori necessari'] = df['Numero di chiamate'] / cph
-    df['Operatori necessari (con shrinkage)'] = np.ceil(df['Operatori necessari'] / (1 - shrinkage))
+    slot_duration_hours = df['slot_duration_seconds'] / 3600
+    df['Operatori necessari (raw)'] = (df['Numero di chiamate'] / cph) 
+    df['Operatori necessari (con shrinkage)'] = np.ceil(df['Operatori necessari (raw)'] / (1 - shrinkage))
+    df['Costo Stimato (€)'] = df['Operatori necessari (con shrinkage)'] * cost_per_hour * slot_duration_hours
     return df
-
 
 # --- Funzioni di Supporto e UI ---
 
 def get_default_data():
     """
-    Genera un DataFrame di esempio.
+    Genera un DataFrame di esempio più realistico.
     """
-    dates = pd.to_datetime(pd.date_range(start="2023-01-02", periods=7, freq='D'))
-    time_slots = pd.to_datetime(pd.date_range(start="08:00", end="19:00", freq="30min")).strftime('%H:%M')
+    dates = pd.to_datetime(pd.date_range(start="2023-01-02", periods=14, freq='D'))
+    time_slots = pd.to_datetime(pd.date_range(start="08:00", end="20:00", freq="30min")).strftime('%H:%M')
     
     data = []
     for date in dates:
         for slot in time_slots:
-            # Modello di chiamate: picco a metà mattina e metà pomeriggio, meno la sera
             hour = int(slot.split(':')[0])
-            base_calls = 50
-            # Curva sinusoidale per simulare un andamento realistico
-            multiplier = (np.sin((hour - 8) * np.pi / 11) + 0.5) * 1.5 
-            if date.weekday() >= 5: # Weekend
-                multiplier *= 0.4
+            base_calls = 60
+            # Curva con due picchi (11:00 e 16:00)
+            peak1 = np.exp(-((hour - 11)**2) / 4) 
+            peak2 = np.exp(-((hour - 16)**2) / 5)
+            multiplier = (peak1 + peak2 * 0.8) * 1.8
             
-            calls = int(base_calls * multiplier + np.random.randint(-10, 10))
+            if date.weekday() == 5: # Sabato
+                multiplier *= 0.5
+            elif date.weekday() == 6: # Domenica
+                multiplier *= 0.2
+            
+            calls = int(base_calls * multiplier + np.random.randint(-15, 15))
             data.append([date.strftime('%Y-%m-%d'), slot, max(0, calls)])
             
     df = pd.DataFrame(data, columns=['Data', 'Time slot', 'Numero di chiamate'])
     return df
 
+@st.cache_data
+def convert_df_to_csv(df):
+    return df.to_csv(index=False).encode('utf-8')
+
 # --- Sidebar ---
 with st.sidebar:
     st.header("1. Dati di Input")
     
-    use_default_data = st.checkbox("Usa dati di esempio", value=True)
+    use_default_data = st.checkbox("Usa dati di esempio", value=True, help="Seleziona per usare un dataset pre-caricato con un andamento di chiamate realistico. Deseleziona per caricare il tuo file.")
     
+    df = None
     if use_default_data:
         df = get_default_data()
-        st.success("Dati di esempio caricati.")
+        st.info("ℹ️ Dati di esempio caricati.")
     else:
-        uploaded_file = st.file_uploader("Carica un file CSV", type=["csv"])
+        uploaded_file = st.file_uploader("Carica un file CSV", type=["csv"], help="Il file deve contenere le colonne 'Data', 'Time slot' (formato HH:MM), e 'Numero di chiamate'.")
         if uploaded_file:
-            df = pd.read_csv(uploaded_file)
-        else:
-            df = None
+            try:
+                df = pd.read_csv(uploaded_file)
+                # Validazione colonne
+                required_cols = ['Data', 'Time slot', 'Numero di chiamate']
+                if not all(col in df.columns for col in required_cols):
+                    st.error(f"Il file CSV deve contenere le colonne: {required_cols}")
+                    df = None
+            except Exception as e:
+                st.error(f"Errore nel caricamento del file: {e}")
+                df = None
 
-    if df is not None:
+    if df is not None and not df.empty:
         st.header("2. Parametri del Modello")
         
-        call_type = st.selectbox("Tipo di Chiamate", ["Inbound", "Outbound"])
+        call_type = st.selectbox("Tipo di Chiamate", ["Inbound", "Outbound"], help="**Inbound**: per chiamate ricevute (es. customer service). **Outbound**: per chiamate effettuate (es. telemarketing).")
         
-        slot_duration = st.number_input("Durata slot (minuti)", min_value=1, value=30)
-        
+        slot_duration = st.number_input("Durata slot (minuti)", min_value=1, value=30, help="La durata in minuti di ogni intervallo di tempo nel dataset (es. 30 minuti).")
+        cost_per_hour = st.number_input("Costo orario per operatore (€)", min_value=0.0, value=20.0, step=0.5, help="Il costo lordo orario di un singolo operatore. Usato per stimare i costi totali.")
+
         if call_type == "Inbound":
             st.subheader("Parametri Inbound (Erlang C)")
-            aht = st.slider("Average Handle Time (AHT) in secondi", 100, 600, 300)
-            sl_target = st.slider("Service Level Target (%)", 50, 100, 80) / 100.0
-            answer_time = st.slider("Tempo di risposta target (secondi)", 5, 60, 20)
-            max_occupancy = st.slider("Massima Occupazione Agente (%)", 50, 100, 85) / 100.0
-            shrinkage = st.slider("Shrinkage (%)", 0, 50, 30, help="Percentuale di tempo in cui un agente non è disponibile (pause, formazione, etc.)") / 100.0
+            aht = st.slider("Average Handle Time (AHT) in secondi", 100, 800, 320, help="Il tempo medio totale per gestire una chiamata, inclusi conversazione e post-chiamata.")
+            sl_target = st.slider("Service Level Target (%)", 50, 99, 80, help="L'obiettivo percentuale di chiamate a cui rispondere entro il tempo target (es. 80% delle chiamate in 20 secondi).") / 100.0
+            answer_time = st.slider("Tempo di risposta target (secondi)", 5, 60, 20, help="Il tempo massimo in secondi entro cui si dovrebbe rispondere per rispettare il Service Level.")
+            max_occupancy = st.slider("Massima Occupazione Agente (%)", 50, 100, 85, help="La percentuale massima di tempo che un operatore dovrebbe dedicare alla gestione delle chiamate per evitare burnout.") / 100.0
+            shrinkage = st.slider("Shrinkage (%)", 0, 50, 30, help="La percentuale di tempo retribuito in cui un operatore non è disponibile a ricevere chiamate (pause, formazione, riunioni, etc.).") / 100.0
         
         elif call_type == "Outbound":
             st.subheader("Parametri Outbound")
-            cph = st.slider("Contatti per Ora (CPH) per agente", 1, 100, 20)
-            shrinkage = st.slider("Shrinkage (%)", 0, 50, 30) / 100.0
+            cph = st.slider("Contatti Utili per Ora (CPH)", 1, 100, 15, help="Il numero di chiamate con esito positivo (es. vendita, appuntamento) che un operatore riesce a completare in un'ora.")
+            shrinkage = st.slider("Shrinkage (%)", 0, 50, 30, help="La percentuale di tempo retribuito in cui un operatore non è disponibile a effettuare chiamate (pause, formazione, etc.).") / 100.0
 
         run_button = st.button("🚀 Calcola Fabbisogno")
 
 # --- Main App ---
-if 'run_button' in locals() and run_button and df is not None:
+if 'run_button' in locals() and run_button and df is not None and not df.empty:
     
-    # --- Pre-processing dei dati ---
-    try:
-        df['Data'] = pd.to_datetime(df['Data'])
-        df['Giorno'] = df['Data'].dt.day_name()
-        df['slot_duration_seconds'] = slot_duration * 60
-    except Exception as e:
-        st.error(f"Errore nella conversione delle colonne. Assicurati che il CSV abbia le colonne 'Data' e 'Time slot'. Dettaglio: {e}")
-        st.stop()
+    with st.spinner("Elaborazione in corso... Attendere prego."):
+        # --- Pre-processing dei dati ---
+        try:
+            df['Data'] = pd.to_datetime(df['Data'])
+            df['Giorno'] = df['Data'].dt.day_name()
+            df['slot_duration_seconds'] = slot_duration * 60
+        except Exception as e:
+            st.error(f"Errore nella conversione delle colonne. Assicurati che la colonna 'Data' sia in un formato riconoscibile. Dettaglio: {e}")
+            st.stop()
 
-    st.markdown("### Dati di Input Aggregati per Giorno e Ora")
-    
-    # Aggrega i dati per calcolare la media delle chiamate per ogni slot
-    agg_df = df.groupby(['Giorno', 'Time slot'])['Numero di chiamate'].mean().reset_index()
-    agg_df['Numero di chiamate'] = agg_df['Numero di chiamate'].round().astype(int)
-    
-    # Ordina i giorni della settimana
-    days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    agg_df['Giorno'] = pd.Categorical(agg_df['Giorno'], categories=days_order, ordered=True)
-    agg_df = agg_df.sort_values(['Giorno', 'Time slot'])
-    agg_df['Data'] = pd.to_datetime(agg_df['Giorno'], format='%A') # Aggiungi colonna data per compatibilità
-    agg_df['slot_duration_seconds'] = slot_duration * 60
+        st.markdown("### 📊 Dati di Input Aggregati")
+        st.info("I dati mostrati di seguito rappresentano la media delle chiamate per ogni giorno della settimana e fascia oraria, calcolata a partire dal dataset fornito.")
+        
+        agg_df = df.groupby(['Giorno', 'Time slot'])['Numero di chiamate'].mean().reset_index()
+        agg_df['Numero di chiamate'] = agg_df['Numero di chiamate'].round().astype(int)
+        
+        days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        agg_df['Giorno'] = pd.Categorical(agg_df['Giorno'], categories=days_order, ordered=True)
+        agg_df = agg_df.sort_values(['Giorno', 'Time slot'])
+        agg_df['Data'] = pd.to_datetime(agg_df['Giorno'], format='%A') 
+        agg_df['slot_duration_seconds'] = slot_duration * 60
 
+        st.dataframe(agg_df[[ 'Giorno', 'Time slot', 'Numero di chiamate']].head())
 
-    st.dataframe(agg_df.head())
-
-    # --- Calcolo del Fabbisogno ---
-    if call_type == "Inbound":
-        results_df = calculate_inbound_staffing(agg_df, aht, sl_target, answer_time, shrinkage, max_occupancy)
-        required_col = 'Operatori necessari (con shrinkage)'
-    else: # Outbound
-        # Per l'outbound, il calcolo è più semplice e non richiede aggregazione complessa
-        outbound_df = df.copy()
-        outbound_df['slot_duration_seconds'] = slot_duration * 60
-        results_df = calculate_outbound_staffing(outbound_df, cph, shrinkage)
-        required_col = 'Operatori necessari (con shrinkage)'
-        # Aggrega i risultati per la visualizzazione
-        agg_df = results_df.groupby(['Giorno', 'Time slot'])[required_col].mean().reset_index()
-        agg_df[required_col] = agg_df[required_col].round().astype(int)
-
+        # --- Calcolo del Fabbisogno ---
+        if call_type == "Inbound":
+            results_df = calculate_inbound_staffing(agg_df, aht, sl_target, answer_time, shrinkage, max_occupancy, cost_per_hour)
+            required_col = 'Operatori necessari (con shrinkage)'
+            cost_col = 'Costo Stimato (€)'
+        else: # Outbound
+            results_df = calculate_outbound_staffing(agg_df, cph, shrinkage, cost_per_hour)
+            required_col = 'Operatori necessari (con shrinkage)'
+            cost_col = 'Costo Stimato (€)'
 
     st.markdown("---")
-    st.markdown("### Risultati del Capacity Sizing")
+    st.markdown("### 📈 Risultati del Capacity Sizing")
+
+    # --- Metriche Chiave ---
+    total_agents_needed = results_df[required_col].sum()
+    total_cost_estimated = results_df[cost_col].sum()
+    avg_occupancy = results_df['Occupazione Stimata'].mean() if 'Occupazione Stimata' in results_df else 0
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Totale Ore-Operatore Settimanali", f"{total_agents_needed:,.0f}")
+    col2.metric("Costo Totale Stimato Settimanale", f"€ {total_cost_estimated:,.2f}")
+    if call_type == "Inbound":
+        col3.metric("Occupazione Media Stimata", f"{avg_occupancy:.1%}")
 
     # --- Visualizzazioni ---
-    
-    # 1. Heatmap
-    st.markdown("#### Heatmap Fabbisogno Operatori")
-    
-    try:
-        # Usa il dataframe aggregato corretto
-        df_for_heatmap = agg_df if call_type == 'Outbound' else results_df
-        heatmap_data = df_for_heatmap.pivot_table(values=required_col, index='Time slot', columns='Giorno')
-        heatmap_data = heatmap_data.reindex(columns=days_order).dropna(how='all', axis=1)
+    tab1, tab2, tab3 = st.tabs(["Heatmap Fabbisogno", "Grafici di Dettaglio", "Tabella Risultati"])
 
-        fig_heatmap = px.imshow(
-            heatmap_data,
-            labels=dict(x="Giorno della Settimana", y="Fascia Oraria", color="Operatori"),
-            x=heatmap_data.columns,
-            y=heatmap_data.index,
-            text_auto=True,
-            aspect="auto",
-            color_continuous_scale=px.colors.sequential.Viridis
+    with tab1:
+        st.markdown("#### Heatmap Fabbisogno Operatori")
+        st.info("Questa mappa di calore mostra il numero di operatori necessari (inclusa la shrinkage) per ogni fascia oraria e giorno della settimana.")
+        try:
+            heatmap_data = results_df.pivot_table(values=required_col, index='Time slot', columns='Giorno')
+            heatmap_data = heatmap_data.reindex(columns=days_order).dropna(how='all', axis=1)
+
+            fig_heatmap = px.imshow(
+                heatmap_data,
+                labels=dict(x="Giorno della Settimana", y="Fascia Oraria", color="Operatori"),
+                x=heatmap_data.columns,
+                y=heatmap_data.index,
+                text_auto=True,
+                aspect="auto",
+                color_continuous_scale=px.colors.sequential.Viridis
+            )
+            fig_heatmap.update_layout(title="Fabbisogno di Operatori per Giorno e Ora")
+            st.plotly_chart(fig_heatmap, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Non è stato possibile generare la heatmap. Dettaglio: {e}")
+
+    with tab2:
+        st.markdown("#### Fabbisogno Totale per Giorno")
+        daily_needs = results_df.groupby('Giorno')[required_col].sum().reindex(days_order).dropna()
+        fig_daily = px.bar(
+            daily_needs,
+            x=daily_needs.index,
+            y=daily_needs.values,
+            labels={'x': 'Giorno della Settimana', 'y': 'Totale Ore-Operatore'},
+            title="Fabbisogno Totale di Ore-Operatore per Giorno"
         )
-        fig_heatmap.update_layout(title="Fabbisogno di Operatori per Giorno e Ora")
-        st.plotly_chart(fig_heatmap, use_container_width=True)
-    except Exception as e:
-        st.warning(f"Non è stato possibile generare la heatmap. Dettaglio: {e}")
+        st.plotly_chart(fig_daily, use_container_width=True)
 
+        st.markdown("#### Fabbisogno Medio per Fascia Oraria")
+        hourly_needs = results_df.groupby('Time slot')[required_col].mean().reset_index()
+        fig_hourly = px.line(
+            hourly_needs,
+            x='Time slot',
+            y=required_col,
+            labels={'Time slot': 'Fascia Oraria', required_col: 'Fabbisogno Medio Operatori'},
+            title="Fabbisogno Medio di Operatori per Fascia Oraria (tutti i giorni)"
+        )
+        fig_hourly.update_traces(mode='lines+markers')
+        st.plotly_chart(fig_hourly, use_container_width=True)
 
-    # 2. Grafico a barre per giorno
-    st.markdown("#### Fabbisogno Totale per Giorno")
-    daily_needs = results_df.groupby('Giorno')[required_col].sum().reindex(days_order).dropna()
-    fig_daily = px.bar(
-        daily_needs,
-        x=daily_needs.index,
-        y=daily_needs.values,
-        labels={'x': 'Giorno della Settimana', 'y': 'Totale Operatori-Ora'},
-        title="Fabbisogno Totale di Operatori-Ora per Giorno"
-    )
-    st.plotly_chart(fig_daily, use_container_width=True)
+    with tab3:
+        st.markdown("#### Tabella Dettagliata dei Risultati")
+        st.info("Questa tabella mostra i calcoli dettagliati per ogni singolo intervallo di tempo.")
+        
+        # Formattazione condizionale
+        def format_table(df_to_format):
+            format_dict = {
+                "Costo Stimato (€)": "{:.2f}"
+            }
+            if 'Service Level Stimato' in df_to_format.columns:
+                format_dict["Service Level Stimato"] = "{:.2%}"
+            if 'Occupazione Stimata' in df_to_format.columns:
+                format_dict["Occupazione Stimata"] = "{:.2%}"
+            return df_to_format.style.format(format_dict)
 
-    # 3. Grafico a linee per fascia oraria
-    st.markdown("#### Fabbisogno Medio per Fascia Oraria")
-    hourly_needs = results_df.groupby('Time slot')[required_col].mean().reset_index()
-    fig_hourly = px.line(
-        hourly_needs,
-        x='Time slot',
-        y=required_col,
-        labels={'Time slot': 'Fascia Oraria', required_col: 'Fabbisogno Medio Operatori'},
-        title="Fabbisogno Medio di Operatori per Fascia Oraria"
-    )
-    fig_hourly.update_traces(mode='lines+markers')
-    st.plotly_chart(fig_hourly, use_container_width=True)
+        st.dataframe(format_table(results_df), use_container_width=True)
+        
+        csv = convert_df_to_csv(results_df)
+        st.download_button(
+            label="📥 Scarica Risultati in CSV",
+            data=csv,
+            file_name=f'capacity_sizing_{call_type.lower()}_{pd.Timestamp.now().strftime("%Y%m%d_%H%M")}.csv',
+            mime='text/csv',
+        )
 
-    # 4. Tabella dei risultati
-    with st.expander("Mostra tabella dettagliata dei risultati"):
-        st.dataframe(results_df.style.format({
-            "Service Level Stimato": "{:.2%}",
-            "Occupazione Stimata": "{:.2%}"
-        }))
-
+elif df is not None and df.empty:
+    st.warning("Il DataFrame è vuoto. Controlla il file caricato o i filtri applicati.")
 else:
-    st.info("Configura i parametri nella sidebar e clicca su 'Calcola Fabbisogno' per visualizzare i risultati.")
+    st.info("☝️ Per iniziare, configura i parametri nella sidebar e clicca su 'Calcola Fabbisogno'.")
 

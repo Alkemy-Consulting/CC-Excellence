@@ -29,11 +29,12 @@ def compute_all_metrics(y_true, y_pred):
     else: metrics["SMAPE"] = np.nan
     return metrics
 
-def run_holt_winters_model(df: pd.DataFrame, date_col: str, target_col: str, horizon: int, selected_metrics: list, params: dict):
+def run_holt_winters_model(df: pd.DataFrame, date_col: str, target_col: str, horizon: int, selected_metrics: list, params: dict, return_metrics=False):
     """
     Runs the Holt-Winters model using parameters passed from the UI.
     """
-    st.subheader("Holt-Winters Forecast")
+    if not return_metrics:
+        st.subheader("Holt-Winters Forecast")
 
     # Estrai i parametri dal dizionario
     trend_type = params.get('trend_type', 'add')
@@ -64,45 +65,56 @@ def run_holt_winters_model(df: pd.DataFrame, date_col: str, target_col: str, hor
             optimized=optimized
         )
 
-        st.success("Modello Holt-Winters addestrato con successo.")
-        with st.expander("Vedi parametri del modello ottimizzati"):
-            st.json({k: (f"{v:.4f}" if isinstance(v, float) else v) for k, v in model_params.items() if v is not None})
+        if not return_metrics:
+            st.success("Modello Holt-Winters addestrato con successo.")
+            with st.expander("Vedi parametri del modello ottimizzati"):
+                st.json({k: (f"{v:.4f}" if isinstance(v, float) else v) for k, v in model_params.items() if v is not None})
 
         # Calcolo e visualizzazione metriche
-        st.write("### Evaluation Metrics (su dati storici)")
+        if not return_metrics:
+            st.write("### Evaluation Metrics (su dati storici)")
         metrics_results = compute_all_metrics(series, fitted)
         if not selected_metrics: selected_metrics = ["MAE", "RMSE", "MAPE"]
         
-        cols = st.columns(len(selected_metrics))
-        for i, metric in enumerate(selected_metrics):
-            value = metrics_results.get(metric)
-            if value is not None:
-                format_str = "{:.0f}%" if metric in ["MAPE", "SMAPE"] else "{:.3f}"
-                cols[i].metric(metric, format_str.format(value))
+        if not return_metrics:
+            cols = st.columns(len(selected_metrics))
+            for i, metric in enumerate(selected_metrics):
+                value = metrics_results.get(metric)
+                if value is not None:
+                    format_str = "{:.0f}%" if metric in ["MAPE", "SMAPE"] else "{:.3f}"
+                    cols[i].metric(metric, format_str.format(value))
 
-        # Grafico con Plotly
-        st.write("### Grafico Forecast")
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df[date_col], y=df[target_col], mode='lines', name='Storico', line=dict(color='#1f77b4')))
-        fig.add_trace(go.Scatter(x=fitted.index, y=fitted, mode='lines', name='Fitted', line=dict(color='#ff7f0e', dash='dash')))
-        fig.add_trace(go.Scatter(x=forecast.index, y=forecast, mode='lines', name='Forecast', line=dict(color='#d62728')))
-        st.plotly_chart(fig, use_container_width=True)
+            # Grafico con Plotly
+            st.write("### Grafico Forecast")
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df[date_col], y=df[target_col], mode='lines', name='Storico', line=dict(color='#1f77b4')))
+            fig.add_trace(go.Scatter(x=fitted.index, y=fitted, mode='lines', name='Fitted', line=dict(color='#ff7f0e', dash='dash')))
+            fig.add_trace(go.Scatter(x=forecast.index, y=forecast, mode='lines', name='Forecast', line=dict(color='#d62728')))
+            st.plotly_chart(fig, use_container_width=True)
 
-        # Bottone di download
-        if st.button("📥 Scarica Forecast in Excel"):
-            forecast_df = pd.DataFrame({'ds': forecast.index, 'yhat': forecast.values})
-            buffer = io.BytesIO()
-            forecast_df.to_excel(buffer, index=False, engine='openpyxl')
-            buffer.seek(0)
-            st.download_button(
-                label="Download .xlsx",
-                data=buffer,
-                file_name="holtwinters_forecast.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            # Bottone di download
+            if st.button("📥 Scarica Forecast in Excel", key="holtwinters_download_btn"):
+                forecast_df = pd.DataFrame({'ds': forecast.index, 'yhat': forecast.values})
+                buffer = io.BytesIO()
+                forecast_df.to_excel(buffer, index=False, engine='openpyxl')
+                buffer.seek(0)
+                st.download_button(
+                    label="Download .xlsx",
+                    data=buffer,
+                    file_name="holtwinters_forecast.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
 
     except Exception as e:
         st.error(f"Errore durante l'esecuzione del modello Holt-Winters: {e}")
+        if return_metrics:
+            return {}
+    
+    # Restituisce le metriche se richiesto (per il modulo Exploratory)
+    if return_metrics:
+        return metrics_results if 'metrics_results' in locals() else {}
+    
+    return None  # Default per mantenere compatibilità
 
 
 def holt_winters_forecast(

@@ -89,10 +89,11 @@ def plot_forecast(model, forecast):
 def plot_components(model, forecast):
     return plot_components_plotly(model, forecast)
 
-def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, use_cv=False, cv_start_date=None, cv_end_date=None, n_folds=5, fold_horizon=30, test_start_date=None, test_end_date=None, params=None, selected_metrics=None):
+def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, use_cv=False, cv_start_date=None, cv_end_date=None, n_folds=5, fold_horizon=30, test_start_date=None, test_end_date=None, params=None, selected_metrics=None, return_metrics=False):
     import prophet
     # st.info(f"Versione di Prophet in uso: {prophet.__version__}")  # <-- RIMOSSO QUESTO MESSAGGIO
-    st.subheader("Prophet Forecast")
+    if not return_metrics:
+        st.subheader("Prophet Forecast")
 
     # Preprocessing
     prophet_df = df[[date_col, target_col]].rename(columns={date_col: 'ds', target_col: 'y'})
@@ -131,7 +132,8 @@ def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, us
                 (prophet_df['ds'] >= pd.to_datetime(cv_start_date)) & (prophet_df['ds'] <= pd.to_datetime(cv_end_date))
             ].copy()
 
-            st.info(f"Dati usati per CV: {df_cv_range['ds'].min().date()} → {df_cv_range['ds'].max().date()}")
+            if not return_metrics:
+                st.info(f"Dati usati per CV: {df_cv_range['ds'].min().date()} → {df_cv_range['ds'].max().date()}")
 
             model = Prophet(
                 seasonality_mode=seasonality_mode,
@@ -141,7 +143,8 @@ def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, us
 
             # Fallback automatico per la cross-validation
             try:
-                st.write("Esecuzione cross-validation con sintassi moderna (Prophet >= 1.1)...")
+                if not return_metrics:
+                    st.write("Esecuzione cross-validation con sintassi moderna (Prophet >= 1.1)...")
                 df_cv = cross_validation(
                     model,
                     df=df_cv_range,
@@ -151,7 +154,8 @@ def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, us
                 )
             except TypeError as e:
                 if "unexpected keyword argument 'df'" in str(e):
-                    st.warning("Sintassi moderna fallita. Tentativo con la sintassi legacy (Prophet < 1.1)...")
+                    if not return_metrics:
+                        st.warning("Sintassi moderna fallita. Tentativo con la sintassi legacy (Prophet < 1.1)...")
                     model.fit(df_cv_range)
                     df_cv = cross_validation(
                         model,
@@ -164,10 +168,11 @@ def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, us
                     raise e
             
             df_perf = performance_metrics(df_cv)
-            st.dataframe(df_perf[['horizon', 'mae', 'rmse', 'mape']].round(2))
+            if not return_metrics:
+                st.dataframe(df_perf[['horizon', 'mae', 'rmse', 'mape']].round(2))
 
-            # Sintesi delle metriche
-            st.write("### CV Metrics (media su tutti i fold)")
+                # Sintesi delle metriche
+                st.write("### CV Metrics (media su tutti i fold)")
             
             # Mostra solo le metriche selezionate
             avg_metrics = {
@@ -178,36 +183,38 @@ def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, us
                 'SMAPE': df_perf['smape'].mean() if 'smape' in df_perf else np.nan
             }
 
-            cols = st.columns(len(selected_metrics))
-            for i, metric in enumerate(selected_metrics):
-                metric_key = metric.upper()
-                value = avg_metrics.get(metric_key, np.nan)
-                if metric_key in ["MAPE", "SMAPE"]:
-                    cols[i].metric(metric, f"{value:.0f}%")
-                else:
-                    cols[i].metric(metric, f"{value:.2f}")
+            if not return_metrics:
+                cols = st.columns(len(selected_metrics))
+                for i, metric in enumerate(selected_metrics):
+                    metric_key = metric.upper()
+                    value = avg_metrics.get(metric_key, np.nan)
+                    if metric_key in ["MAPE", "SMAPE"]:
+                        cols[i].metric(metric, f"{value:.0f}%")
+                    else:
+                        cols[i].metric(metric, f"{value:.2f}")
 
-            # Plot del forecast dell'ultimo fold come esempio
-            st.write("### Grafico dell'ultimo fold di Cross-Validation")
-            last_cutoff = df_cv['cutoff'].max()
-            df_cv_last_fold = df_cv[df_cv['cutoff'] == last_cutoff]
+                # Plot del forecast dell'ultimo fold come esempio
+                st.write("### Grafico dell'ultimo fold di Cross-Validation")
+                last_cutoff = df_cv['cutoff'].max()
+                df_cv_last_fold = df_cv[df_cv['cutoff'] == last_cutoff]
 
-            import plotly.graph_objects as go
-            fig = go.Figure([
-                go.Scatter(x=df_cv_last_fold['ds'], y=df_cv_last_fold['y'], name='Actual', mode='lines', line=dict(color='#1f77b4')),
-                go.Scatter(x=df_cv_last_fold['ds'], y=df_cv_last_fold['yhat'], name='Forecast', mode='lines', line=dict(color='#ff7f0e', dash='dash')),
-                go.Scatter(x=df_cv_last_fold['ds'], y=df_cv_last_fold['yhat_lower'], fill='tonexty', mode='none', fillcolor='rgba(255,127,14,0.2)', showlegend=False),
-                go.Scatter(x=df_cv_last_fold['ds'], y=df_cv_last_fold['yhat_upper'], fill='tonexty', mode='none', fillcolor='rgba(255,127,14,0.2)', showlegend=False)
-            ])
-            fig.update_layout(title=f"CV Forecast vs Actuals (Cutoff: {last_cutoff.date()})")
-            st.plotly_chart(fig, use_container_width=True)
+                import plotly.graph_objects as go
+                fig = go.Figure([
+                    go.Scatter(x=df_cv_last_fold['ds'], y=df_cv_last_fold['y'], name='Actual', mode='lines', line=dict(color='#1f77b4')),
+                    go.Scatter(x=df_cv_last_fold['ds'], y=df_cv_last_fold['yhat'], name='Forecast', mode='lines', line=dict(color='#ff7f0e', dash='dash')),
+                    go.Scatter(x=df_cv_last_fold['ds'], y=df_cv_last_fold['yhat_lower'], fill='tonexty', mode='none', fillcolor='rgba(255,127,14,0.2)', showlegend=False),
+                    go.Scatter(x=df_cv_last_fold['ds'], y=df_cv_last_fold['yhat_upper'], fill='tonexty', mode='none', fillcolor='rgba(255,127,14,0.2)', showlegend=False)
+                ])
+                fig.update_layout(title=f"CV Forecast vs Actuals (Cutoff: {last_cutoff.date()})")
+                st.plotly_chart(fig, use_container_width=True)
 
         except Exception as e:
             st.error(f"Errore durante la cross-validation: {e}")
 
     else:
         if not make_forecast:
-            st.markdown("### Backtesting personalizzato")
+            if not return_metrics:
+                st.markdown("### Backtesting personalizzato")
 
             if test_start_date and test_end_date:
                 test_mask = (prophet_df['ds'] >= pd.to_datetime(test_start_date)) & (prophet_df['ds'] <= pd.to_datetime(test_end_date))
@@ -218,7 +225,8 @@ def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, us
                 train_df = prophet_df.iloc[:split_point]
                 test_df = prophet_df.iloc[split_point:]
 
-            st.info(f"Training: {train_df['ds'].min().date()} → {train_df['ds'].max().date()}\nTest: {test_df['ds'].min().date()} → {test_df['ds'].max().date()}")
+            if not return_metrics:
+                st.info(f"Training: {train_df['ds'].min().date()} → {train_df['ds'].max().date()}\nTest: {test_df['ds'].min().date()} → {test_df['ds'].max().date()}")
 
             model = Prophet(
                 seasonality_mode=seasonality_mode,
@@ -232,23 +240,24 @@ def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, us
             forecast = forecast[forecast['ds'].isin(test_df['ds'])]
 
             results = evaluate_forecast(test_df, forecast)
-            st.plotly_chart(plot_plotly(model, forecast), use_container_width=True)
-            st.plotly_chart(plot_components_plotly(model, forecast), use_container_width=True)
+            if not return_metrics:
+                st.plotly_chart(plot_plotly(model, forecast), use_container_width=True)
+                st.plotly_chart(plot_components_plotly(model, forecast), use_container_width=True)
             
-            st.write("### Evaluation Metrics")
-            cols = st.columns(len(selected_metrics))
-            for i, metric in enumerate(selected_metrics):
-                if metric in results:
-                    cols[i].metric(metric, f"{results[metric]:.3f}")
+                st.write("### Evaluation Metrics")
+                cols = st.columns(len(selected_metrics))
+                for i, metric in enumerate(selected_metrics):
+                    if metric in results:
+                        cols[i].metric(metric, f"{results[metric]:.3f}")
 
-            if st.button("📥 Scarica Forecast in Excel"):
-                import io
-                forecast_out = forecast.copy()
-                forecast_out = forecast_out[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
-                buffer = io.BytesIO()
-                forecast_out.to_excel(buffer, index=False, engine='openpyxl')
-                buffer.seek(0)
-                st.download_button(
+                if st.button("📥 Scarica Forecast in Excel", key="prophet_download_btn_1"):
+                    import io
+                    forecast_out = forecast.copy()
+                    forecast_out = forecast_out[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
+                    buffer = io.BytesIO()
+                    forecast_out.to_excel(buffer, index=False, engine='openpyxl')
+                    buffer.seek(0)
+                    st.download_button(
                     label="Download .xlsx",
                     data=buffer,
                     file_name="forecast.xlsx",
@@ -265,7 +274,8 @@ def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, us
             future = model.make_future_dataframe(periods=horizon, freq=freq)
             forecast = model.predict(future)
 
-            st.markdown("### Forecast futuro")
+            if not return_metrics:
+                st.markdown("### Forecast futuro")
 
             import plotly.graph_objects as go
 
@@ -303,27 +313,43 @@ def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, us
                 )
             ])
 
-            st.plotly_chart(fig, use_container_width=True)
+            if not return_metrics:
+                st.plotly_chart(fig, use_container_width=True)
 
-            st.plotly_chart(plot_components(model, forecast), use_container_width=True)
+                st.plotly_chart(plot_components(model, forecast), use_container_width=True)
             metrics = evaluate_forecast(prophet_df, forecast)
             
-            st.write("### Evaluation Metrics (su dati storici)")
-            cols = st.columns(len(selected_metrics))
-            for i, metric in enumerate(selected_metrics):
-                if metric in metrics:
-                    cols[i].metric(metric, f"{metrics[metric]:.3f}")
+            if not return_metrics:
+                st.write("### Evaluation Metrics (su dati storici)")
+                cols = st.columns(len(selected_metrics))
+                for i, metric in enumerate(selected_metrics):
+                    if metric in metrics:
+                        cols[i].metric(metric, f"{metrics[metric]:.3f}")
 
-            if st.button("📥 Scarica Forecast in Excel"):
-                import io
-                forecast_out = forecast.copy()
-                forecast_out = forecast_out[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
-                buffer = io.BytesIO()
-                forecast_out.to_excel(buffer, index=False, engine='openpyxl')
-                buffer.seek(0)
-                st.download_button(
+                if st.button("📥 Scarica Forecast in Excel", key="prophet_download_btn_2"):
+                    import io
+                    forecast_out = forecast.copy()
+                    forecast_out = forecast_out[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
+                    buffer = io.BytesIO()
+                    forecast_out.to_excel(buffer, index=False, engine='openpyxl')
+                    buffer.seek(0)
+                    st.download_button(
                     label="Download .xlsx",
                     data=buffer,
                     file_name="forecast.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
+
+    # Restituisce le metriche se richiesto (per il modulo Exploratory)
+    if return_metrics:
+        if use_cv:
+            # Restituisce le metriche medie della cross-validation
+            return avg_metrics if 'avg_metrics' in locals() else {}
+        elif not make_forecast:
+            # Restituisce le metriche del test set (backtesting)
+            return results if 'results' in locals() else {}
+        else:
+            # Restituisce le metriche del forecast standard o futuro
+            return metrics if 'metrics' in locals() else {}
+    
+    return None  # Default per mantenere compatibilità
