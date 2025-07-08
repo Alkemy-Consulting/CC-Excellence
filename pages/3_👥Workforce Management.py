@@ -45,6 +45,17 @@ def convert_df_to_csv(df):
 
 def solve_shift_scheduling(requirements_df, shift_config, constraints, optimization_mode):
     """Risolve il problema di scheduling con CP-SAT."""
+    
+    # Validazione input
+    if not shift_config:
+        return None, "INVALID_INPUT: Nessun turno configurato"
+    
+    if constraints['total_agents'] < 1:
+        return None, "INVALID_INPUT: Numero agenti non valido"
+    
+    if constraints['min_days_per_week'] > constraints['max_days_per_week']:
+        return None, "INVALID_INPUT: Giorni minimi > giorni massimi"
+    
     model = cp_model.CpModel()
 
     # Dati del problema
@@ -52,6 +63,10 @@ def solve_shift_scheduling(requirements_df, shift_config, constraints, optimizat
     days_map = {day: i for i, day in enumerate(requirements_df['Giorno'].unique())}
     slots = requirements_df['Time slot'].unique()
     num_days = len(days_map)
+    
+    # Validazione aggiuntiva
+    if num_days == 0 or len(slots) == 0:
+        return None, "INVALID_INPUT: Dati di fabbisogno vuoti"
     
     shifts = {}
     for a in range(num_agents):
@@ -63,24 +78,39 @@ def solve_shift_scheduling(requirements_df, shift_config, constraints, optimizat
     shortfall_vars = []
     for d_idx, d in enumerate(days_map.keys()):
         for t_idx, t in enumerate(slots):
-            required = int(requirements_df[(requirements_df['Giorno'] == d) & (requirements_df['Time slot'] == t)]['Operatori necessari'].iloc[0])
+            try:
+                required = int(requirements_df[(requirements_df['Giorno'] == d) & (requirements_df['Time slot'] == t)]['Operatori necessari'].iloc[0])
+            except (IndexError, ValueError) as e:
+                # Gestisci il caso in cui non ci siano dati per questa combinazione giorno/slot
+                required = 0
             
             agents_on_duty = []
             for a in range(num_agents):
                 for s_idx, s_info in enumerate(shift_config):
-                    start_hour = int(s_info['start'].split(':')[0])
-                    end_hour = start_hour + s_info['length']
-                    slot_hour = int(t.split(':')[0])
-                    
-                    if start_hour <= slot_hour < end_hour:
-                        agents_on_duty.append(shifts[(a, d_idx, s_idx)])
+                    try:
+                        start_hour = int(s_info['start'].split(':')[0])
+                        end_hour = start_hour + s_info['length']
+                        slot_hour = int(t.split(':')[0])
+                        
+                        # Gestisci i turni che vanno oltre mezzanotte
+                        if end_hour <= 24:
+                            if start_hour <= slot_hour < end_hour:
+                                agents_on_duty.append(shifts[(a, d_idx, s_idx)])
+                        else:
+                            # Turno che attraversa mezzanotte
+                            if slot_hour >= start_hour or slot_hour < (end_hour - 24):
+                                agents_on_duty.append(shifts[(a, d_idx, s_idx)])
+                    except (ValueError, KeyError) as e:
+                        # Skip turni con configurazione invalida
+                        continue
             
-            if optimization_mode == "Stretta":
-                model.Add(sum(agents_on_duty) >= required)
-            else: # Modalità Flessibile
-                shortfall = model.NewIntVar(0, required, f'shortfall_d{d_idx}_t{t_idx}')
-                model.Add(sum(agents_on_duty) + shortfall >= required)
-                shortfall_vars.append(shortfall)
+            if required > 0:  # Solo se c'è effettivamente un fabbisogno
+                if optimization_mode == "Stretta":
+                    model.Add(sum(agents_on_duty) >= required)
+                else: # Modalità Flessibile
+                    shortfall = model.NewIntVar(0, required, f'shortfall_d{d_idx}_t{t_idx}')
+                    model.Add(sum(agents_on_duty) + shortfall >= required)
+                    shortfall_vars.append(shortfall)
 
     # Vincolo 2: Ogni agente lavora al massimo un turno al giorno
     for a in range(num_agents):
@@ -114,23 +144,46 @@ def solve_shift_scheduling(requirements_df, shift_config, constraints, optimizat
     if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
         schedule = []
         day_indices = {i: d for d, i in days_map.items()}
+        
+        # Mapping corretto dei giorni alle date
+        day_to_date_map = {
+            "Monday": "2023-01-02",     # Lunedì
+            "Tuesday": "2023-01-03",    # Martedì
+            "Wednesday": "2023-01-04",  # Mercoledì
+            "Thursday": "2023-01-05",   # Giovedì
+            "Friday": "2023-01-06",     # Venerdì
+            "Saturday": "2023-01-07",   # Sabato
+            "Sunday": "2023-01-08"      # Domenica
+        }
+        
         for a in range(num_agents):
             for d_idx in range(num_days):
                 for s_idx, s_info in enumerate(shift_config):
                     if solver.Value(shifts[(a, d_idx, s_idx)]) == 1:
                         day_name = day_indices[d_idx]
-                        # Usiamo una data base per il Gantt, il giorno corretto viene dal nome
-                        base_date = pd.to_datetime(f"2023-01-{d_idx+2}")
-                        start_time = base_date.replace(hour=int(s_info['start'].split(':')[0]), minute=0)
-                        end_time = start_time + pd.Timedelta(hours=s_info['length'])
-                        schedule.append(dict(
-                            Agent=f"Agente {a+1}", 
-                            Day=day_name, 
-                            Shift=s_info['name'], 
-                            Start=start_time.strftime("%Y-%m-%d %H:%M"), 
-                            Finish=end_time.strftime("%Y-%m-%d %H:%M"),
-                            Hours=s_info['length']
-                        ))
+                        
+                        # Usa il mapping corretto per le date
+                        base_date_str = day_to_date_map.get(day_name, "2023-01-02")
+                        base_date = pd.to_datetime(base_date_str)
+                        
+                        try:
+                            start_hour = int(s_info['start'].split(':')[0])
+                            start_minute = int(s_info['start'].split(':')[1]) if ':' in s_info['start'] else 0
+                            start_time = base_date.replace(hour=start_hour, minute=start_minute)
+                            end_time = start_time + pd.Timedelta(hours=s_info['length'])
+                            
+                            schedule.append(dict(
+                                Agent=f"Agente {a+1}", 
+                                Day=day_name, 
+                                Shift=s_info['name'], 
+                                Start=start_time.strftime("%Y-%m-%d %H:%M"), 
+                                Finish=end_time.strftime("%Y-%m-%d %H:%M"),
+                                Hours=s_info['length']
+                            ))
+                        except (ValueError, KeyError) as e:
+                            # Skip turni con configurazione invalida
+                            continue
+                            
         return pd.DataFrame(schedule), solver.StatusName(status)
     else:
         return None, solver.StatusName(status)
@@ -192,6 +245,11 @@ with st.sidebar:
         min_days = st.slider("Min giorni lavorativi/settimana", 3, 6, 4, help="Il numero minimo di giorni che un agente deve lavorare in una settimana.")
         max_days = st.slider("Max giorni lavorativi/settimana", 4, 6, 5, help="Il numero massimo di giorni che un agente può lavorare in una settimana.")
 
+        # Validazione vincoli
+        if min_days > max_days:
+            st.error("❌ Errore: I giorni minimi non possono essere maggiori dei giorni massimi!")
+            st.stop()
+
         constraints = {
             "total_agents": total_agents,
             "min_days_per_week": min_days,
@@ -207,10 +265,18 @@ if 'run_button' in locals() and run_button and req_df is not None:
         st.stop()
 
     with st.spinner("Il modello di ottimizzazione è al lavoro... Potrebbe richiedere fino a 30 secondi."):
-        schedule_df, status = solve_shift_scheduling(req_df, shift_config, constraints, optimization_mode)
+        try:
+            schedule_df, status = solve_shift_scheduling(req_df, shift_config, constraints, optimization_mode)
+        except Exception as e:
+            st.error(f"❌ Errore durante l'ottimizzazione: {str(e)}")
+            st.info("💡 Suggerimenti per risolvere il problema:\n"
+                   "- Controlla che i dati di fabbisogno siano validi\n"
+                   "- Riduci il numero di agenti o modifica i vincoli\n"
+                   "- Prova la modalità 'Flessibile'")
+            st.stop()
 
     st.markdown("---")
-    if schedule_df is not None:
+    if schedule_df is not None and not schedule_df.empty:
         st.success(f"Pianificazione trovata con successo! (Stato: {status})")
         
         # Calcolo Copertura e KPI
@@ -221,14 +287,33 @@ if 'run_button' in locals() and run_button and req_df is not None:
         coverage_data = []
         for _, row_req in req_df.iterrows():
             d, t, required = row_req['Giorno'], row_req['Time slot'], row_req['Operatori necessari']
-            slot_hour = int(t.split(':')[0])
+            try:
+                slot_hour = int(t.split(':')[0])
+            except (ValueError, IndexError):
+                slot_hour = 0  # Default a mezzanotte se parsing fallisce
+                
             count = 0
             if not schedule_df.empty:
                 agents_on_duty = schedule_df[schedule_df['Day'] == d]
                 for _, agent_shift in agents_on_duty.iterrows():
-                    start_h, end_h = pd.to_datetime(agent_shift['Start']).hour, pd.to_datetime(agent_shift['Finish']).hour
-                    if start_h <= slot_hour < (end_h if end_h > start_h else 24):
-                        count += 1
+                    try:
+                        start_dt = pd.to_datetime(agent_shift['Start'])
+                        end_dt = pd.to_datetime(agent_shift['Finish'])
+                        start_h, end_h = start_dt.hour, end_dt.hour
+                        
+                        # Gestisci turni che attraversano mezzanotte
+                        if end_h > start_h:
+                            # Turno normale nella stessa giornata
+                            if start_h <= slot_hour < end_h:
+                                count += 1
+                        else:
+                            # Turno che attraversa mezzanotte
+                            if slot_hour >= start_h or slot_hour < end_h:
+                                count += 1
+                    except (ValueError, TypeError):
+                        # Skip se parsing date fallisce
+                        continue
+                        
             coverage_data.append({'Giorno': d, 'Slot': t, 'Fabbisogno': required, 'Pianificato': count})
         
         coverage_df = pd.DataFrame(coverage_data)
@@ -292,12 +377,23 @@ if 'run_button' in locals() and run_button and req_df is not None:
             )
 
     else:
-        st.error(f"**Impossibile trovare una soluzione (Stato: {status}).**\n\n" + 
-            "Questo solitamente accade se i vincoli sono troppo stringenti per le risorse disponibili. Prova a:\n" + 
-            "- **Aumentare il 'Numero totale di agenti disponibili'.**\n" + 
-            "- **Selezionare la modalità di ottimizzazione 'Flessibile'.**\n" + 
-            "- **Aggiungere più tipi di turno** (es. part-time o turni più corti).\n" + 
-            "- **Rivedere i vincoli** sui giorni lavorativi minimi/massimi.")
+        # Gestione errori specifici
+        if status and "INVALID_INPUT" in status:
+            error_msg = status.replace("INVALID_INPUT: ", "")
+            st.error(f"**Configurazione non valida:** {error_msg}")
+            
+            st.info("💡 **Suggerimenti per risolvere:**\n"
+                   "- Verifica che almeno un tipo di turno sia selezionato\n"
+                   "- Controlla che il numero di agenti sia > 0\n"
+                   "- Assicurati che giorni minimi ≤ giorni massimi\n"
+                   "- Verifica che i dati di fabbisogno siano validi")
+        else:
+            st.error(f"**Impossibile trovare una soluzione (Stato: {status}).**\n\n" + 
+                "Questo solitamente accade se i vincoli sono troppo stringenti per le risorse disponibili. Prova a:\n" + 
+                "- **Aumentare il 'Numero totale di agenti disponibili'.**\n" + 
+                "- **Selezionare la modalità di ottimizzazione 'Flessibile'.**\n" + 
+                "- **Aggiungere più tipi di turno** (es. part-time o turni più corti).\n" + 
+                "- **Rivedere i vincoli** sui giorni lavorativi minimi/massimi.")
 
 elif req_df is not None and req_df.empty:
     st.warning("Il DataFrame del fabbisogno è vuoto. Controlla il file caricato.")

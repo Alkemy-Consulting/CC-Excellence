@@ -8,3 +8,4 @@ statsmodels
 prophet==1.1.7
 cython==0.29.36
 openpyxl>=3.0.0
+ortools
