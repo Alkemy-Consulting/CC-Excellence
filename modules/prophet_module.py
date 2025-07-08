@@ -4,46 +4,9 @@ import numpy as np
 from prophet import Prophet
 from prophet.plot import plot_plotly, plot_components_plotly
 from prophet.diagnostics import cross_validation, performance_metrics
-from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 import io
-from modules.metrics_module import compute_metrics
-
-def compute_all_metrics(y_true, y_pred):
-    # Rimuovi i valori nulli o infiniti per evitare errori di calcolo
-    valid_indices = np.isfinite(y_true) & np.isfinite(y_pred)
-    y_true = y_true[valid_indices]
-    y_pred = y_pred[valid_indices]
-
-    if len(y_true) == 0:
-        return {k: np.nan for k in ["MAE", "MSE", "RMSE", "MAPE", "SMAPE"]}
-
-    mae = mean_absolute_error(y_true, y_pred)
-    mse = mean_squared_error(y_true, y_pred)
-    rmse = np.sqrt(mse)
-
-    # Calcolo robusto di MAPE e SMAPE per evitare divisione per zero
-    non_zero_mask = y_true != 0
-    if np.any(non_zero_mask):
-        mape = np.mean(np.abs((y_true[non_zero_mask] - y_pred[non_zero_mask]) / y_true[non_zero_mask])) * 100
-    else:
-        mape = np.nan
-
-    denominator = np.abs(y_true) + np.abs(y_pred)
-    non_zero_denom_mask = denominator != 0
-    if np.any(non_zero_denom_mask):
-        smape = np.mean(
-            2 * np.abs(y_pred[non_zero_denom_mask] - y_true[non_zero_denom_mask]) / denominator[non_zero_denom_mask]
-        ) * 100
-    else:
-        smape = np.nan
-
-    return {
-        "MAE": mae,
-        "MSE": mse,
-        "RMSE": rmse,
-        "MAPE": mape,
-        "SMAPE": smape
-    }
+from modules.metrics_module import compute_metrics, compute_all_metrics
 
 
 def build_and_forecast_prophet(df, freq='D', periods=30, use_holidays=False, yearly=True, weekly=False, daily=False, seasonality_mode='additive', changepoint_prior_scale=0.05):

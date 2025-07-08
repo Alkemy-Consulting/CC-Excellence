@@ -5,28 +5,7 @@ from statsmodels.tsa.arima.model import ARIMA
 import plotly.graph_objects as go
 import io
 from sklearn.metrics import mean_absolute_error, mean_squared_error
-
-def compute_all_metrics(y_true, y_pred):
-    valid_indices = np.isfinite(y_true) & np.isfinite(y_pred)
-    y_true, y_pred = y_true[valid_indices], y_pred[valid_indices]
-    if len(y_true) == 0: return {k: np.nan for k in ["MAE", "MSE", "RMSE", "MAPE", "SMAPE"]}
-
-    metrics = {
-        "MAE": mean_absolute_error(y_true, y_pred),
-        "MSE": mean_squared_error(y_true, y_pred),
-        "RMSE": np.sqrt(mean_squared_error(y_true, y_pred))
-    }
-    non_zero_mask = y_true != 0
-    if np.any(non_zero_mask):
-        metrics["MAPE"] = np.mean(np.abs((y_true[non_zero_mask] - y_pred[non_zero_mask]) / y_true[non_zero_mask])) * 100
-    else: metrics["MAPE"] = np.nan
-
-    denominator = np.abs(y_true) + np.abs(y_pred)
-    non_zero_denom_mask = denominator != 0
-    if np.any(non_zero_denom_mask):
-        metrics["SMAPE"] = np.mean(2 * np.abs(y_pred[non_zero_denom_mask] - y_true[non_zero_denom_mask]) / denominator[non_zero_denom_mask]) * 100
-    else: metrics["SMAPE"] = np.nan
-    return metrics
+from modules.metrics_module import compute_all_metrics
 
 def run_arima_model(df: pd.DataFrame, date_col: str, target_col: str, horizon: int, selected_metrics: list, params: dict, return_metrics=False):
     if not return_metrics:
@@ -39,7 +18,7 @@ def run_arima_model(df: pd.DataFrame, date_col: str, target_col: str, horizon: i
     try:
         series = df.set_index(date_col)[target_col]
         series.index = pd.to_datetime(series.index)
-        series = series.asfreq(pd.infer_freq(series.index), fill_value='ffill')
+        series = series.asfreq(pd.infer_freq(series.index), method='ffill')
 
         model = ARIMA(series, order=(p, d, q))
         model_fit = model.fit()
