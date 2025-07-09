@@ -42,7 +42,8 @@ import datetime
 from io import StringIO
 
 # Import dei moduli specializzati per calcoli avanzati
-from modules.erlang_module import calculate_erlang_c, calculate_erlang_a, generate_sensitivity_table
+from modules.erlang_module import (calculate_erlang_c, calculate_erlang_a, calculate_erlang_c_conservative, 
+                                  generate_sensitivity_table, generate_conservative_sensitivity_table)
 from modules.simulation_module import calculate_simulation
 from modules.deterministic_module import calculate_deterministic, calculate_outbound_deterministic
 
@@ -184,6 +185,16 @@ def calculate_capacity_requirements(df, model_type, model_params, working_hours,
                     model_params['aht'],
                     model_params.get('patience', 60),
                     model_params['service_level'] / 100,
+                    model_params['answer_time'],
+                    model_params.get('max_occupancy', 0.85),
+                    model_params.get('shrinkage', 0.25),
+                    model_params.get('ore_settimanali_fte', 37.5)
+                )
+            elif model_type == "Erlang C - Conservativo":
+                agents, sl, occ = calculate_erlang_c_conservative(
+                    calls, 
+                    model_params['aht'], 
+                    model_params['service_level'] / 100, 
                     model_params['answer_time'],
                     model_params.get('max_occupancy', 0.85),
                     model_params.get('shrinkage', 0.25),
@@ -448,7 +459,7 @@ with st.sidebar:
     
     # Modelli disponibili per tipologia
     model_options = {
-        "INBOUND": ["Erlang C", "Erlang A", "Deterministico", "Simulazione"],
+        "INBOUND": ["Erlang C", "Erlang C - Conservativo", "Erlang A", "Deterministico", "Simulazione"],
         "OUTBOUND": ["Deterministico", "Simulazione"],
         "BLENDED": ["Simulazione", "Multi-skill Optimization"]
     }
@@ -466,7 +477,7 @@ with st.sidebar:
                                       help="Durata degli intervalli temporali in minuti")
         
         if call_type in ["INBOUND", "BLENDED"]:
-            if selected_model in ["Erlang C", "Erlang A", "Simulazione"]:
+            if selected_model in ["Erlang C", "Erlang C - Conservativo", "Erlang A", "Simulazione"]:
                 aht = st.slider("Average Handle Time (secondi)", 60, 800, 300,
                               help="Tempo medio di gestione chiamata")
                 service_level = st.slider("Service Level Target (%)", 50, 99, 80,
@@ -677,7 +688,7 @@ if run_calculation:
         with col2:
             st.metric("💰 Costo Totale Stimato", f"€{total_cost:,.2f}")
         with col3:
-            if selected_model in ["Erlang C", "Erlang A", "Simulazione"]:
+            if selected_model in ["Erlang C", "Erlang C - Conservativo", "Erlang A", "Simulazione"]:
                 st.metric("📈 Service Level Medio", f"{avg_service_level:.1%}")
             else:
                 st.metric("⚡ Efficienza", "Ottimale")
@@ -808,7 +819,7 @@ if run_calculation:
                 st.warning(f"Impossibile generare la heatmap fabbisogno: {str(e)}")
             
             # Heatmap Service Level
-            if selected_model in ["Erlang C", "Erlang A", "Simulazione"]:
+            if selected_model in ["Erlang C", "Erlang C - Conservativo", "Erlang A", "Simulazione"]:
                 st.markdown("**Mappa di Calore - Service Level Atteso**")
                 try:
                     sl_pivot_data = results_df[results_df['Status'] == 'Aperto'].pivot_table(

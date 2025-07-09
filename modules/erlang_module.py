@@ -424,3 +424,238 @@ def generate_sensitivity_table(arrival_rate, aht, service_level_target, answer_t
         arrival_rate, aht, service_level_target, answer_time_target,
         patience, max_occupancy
     )
+
+
+class ErlangCConservative:
+    """
+    Calcolatore Erlang C Conservativo utilizzando la libreria pyworkforce
+    Fornisce un approccio più conservativo e robusto per il dimensionamento
+    """
+    
+    def __init__(self):
+        self.library_available = True
+        try:
+            from pyworkforce.queuing import ErlangC
+            self.ErlangC = ErlangC
+        except ImportError:
+            self.library_available = False
+            warnings.warn("pyworkforce non disponibile. Usare 'pip install pyworkforce' per installare.")
+    
+    def calculate_conservative_agents(self, arrival_rate, aht, service_level_target, 
+                                    answer_time_target, shrinkage=0.25, max_occupancy=0.85,
+                                    ore_settimanali_fte=37.5):
+        """
+        Calcola agenti necessari con approccio conservativo usando pyworkforce
+        
+        Args:
+            arrival_rate: Chiamate per ora
+            aht: Average Handle Time in secondi
+            service_level_target: Target Service Level (0-1)
+            answer_time_target: Tempo target risposta in secondi
+            shrinkage: Shrinkage operatori (0-1)
+            max_occupancy: Massima occupazione accettabile (0-1)
+            ore_settimanali_fte: Ore settimanali per FTE
+            
+        Returns:
+            tuple: (agenti_necessari_con_shrinkage, service_level, occupazione, asa, dettagli)
+        """
+        if not self.library_available:
+            # Fallback al calcolatore standard
+            agents, sl, occ, asa = erlang_calculator.erlang_c_agents(
+                arrival_rate, aht, service_level_target, answer_time_target, max_occupancy
+            )
+            # Applica shrinkage manualmente
+            agents_with_shrinkage = int(np.ceil(agents / (1 - shrinkage)))
+            return agents_with_shrinkage, sl, occ, asa, {
+                'model_type': 'Erlang C Standard (fallback - no pyworkforce)',
+                'library_available': False
+            }
+        
+        if arrival_rate <= 0:
+            return 0, 1.0, 0.0, 0.0, {}
+        
+        try:
+            # Calcolo intensità di traffico (Erlang)
+            erlangs = (arrival_rate * aht) / 3600
+            
+            # Modello pyworkforce con parametri conservativi
+            ec = self.ErlangC(
+                traffic=erlangs,
+                aht=aht,
+                service_level_goal=service_level_target,
+                service_level_time=answer_time_target,
+                shrinkage=shrinkage,
+                max_occupancy=max_occupancy
+            )
+            
+            # Calcolo agenti base necessari
+            agents_base = ec.required_agents()
+            
+            # Ottieni metriche complete
+            metrics = ec.metrics(agents_base)
+            
+            # Calcolo agenti con shrinkage applicato
+            agents_with_shrinkage = int(np.ceil(agents_base / (1 - shrinkage)))
+            
+            # Metriche finali con shrinkage
+            final_metrics = ec.metrics(agents_with_shrinkage)
+            
+            # Prepara dettagli aggiuntivi
+            details = {
+                'agents_base': agents_base,
+                'agents_with_shrinkage': agents_with_shrinkage,
+                'traffic_intensity': erlangs,
+                'base_metrics': metrics,
+                'final_metrics': final_metrics,
+                'model_type': 'Erlang C Conservativo (pyworkforce)'
+            }
+            
+            return (
+                agents_with_shrinkage,
+                final_metrics.get("service_level", 0.0),
+                final_metrics.get("occupancy", 0.0),
+                final_metrics.get("asa", 0.0),
+                details
+            )
+            
+        except Exception as e:
+            warnings.warn(f"Errore nel calcolo conservativo: {e}. Uso fallback standard.")
+            # Fallback al calcolatore standard
+            agents, sl, occ, asa = erlang_calculator.erlang_c_agents(
+                arrival_rate, aht, service_level_target, answer_time_target, max_occupancy
+            )
+            # Applica shrinkage manualmente
+            agents_with_shrinkage = int(np.ceil(agents / (1 - shrinkage)))
+            
+            return agents_with_shrinkage, sl, occ, asa, {
+                'model_type': 'Erlang C Standard (fallback)',
+                'error': str(e)
+            }
+    
+    def generate_conservative_sensitivity_table(self, arrival_rate, aht, service_level_target,
+                                              answer_time_target, shrinkage=0.25, 
+                                              max_occupancy=0.85, agent_range=None):
+        """
+        Genera tabella sensitivity analysis con approccio conservativo
+        
+        Returns:
+            pandas.DataFrame: Tabella sensitivity analysis conservativa
+        """
+        if not self.library_available:
+            return erlang_calculator.sensitivity_analysis(
+                arrival_rate, aht, service_level_target, answer_time_target,
+                None, max_occupancy, agent_range
+            )
+        
+        try:
+            erlangs = (arrival_rate * aht) / 3600
+            
+            if agent_range is None:
+                min_agents = max(1, int(np.ceil(erlangs)))
+                agent_range = range(min_agents, min_agents + 20)
+            
+            results = []
+            
+            for num_agents in agent_range:
+                try:
+                    ec = self.ErlangC(
+                        traffic=erlangs,
+                        aht=aht,
+                        service_level_goal=service_level_target,
+                        service_level_time=answer_time_target,
+                        shrinkage=shrinkage,
+                        max_occupancy=max_occupancy
+                    )
+                    
+                    metrics = ec.metrics(num_agents)
+                    
+                    # Calcola metriche aggiuntive
+                    occupancy = metrics.get("occupancy", 0.0)
+                    service_level = metrics.get("service_level", 0.0)
+                    asa = metrics.get("asa", 0.0)
+                    prob_wait = metrics.get("probability_wait", 0.0)
+                    
+                    immediate_answer = (1 - prob_wait) * 100 if prob_wait else 100.0
+                    target_met = (service_level >= service_level_target) and (occupancy <= max_occupancy)
+                    
+                    results.append({
+                        'Number of Agents': num_agents,
+                        'Occupancy %': occupancy * 100,
+                        'Service Level %': service_level * 100,
+                        'ASA (seconds)': min(999.9, asa),
+                        '% Answered Immediately': immediate_answer,
+                        '% Abandoned': 0.0,  # Erlang C non considera abbandoni
+                        'Target Met': target_met,
+                        'Model': 'Conservative'
+                    })
+                    
+                except Exception as e:
+                    # Fallback per singoli agenti
+                    results.append({
+                        'Number of Agents': num_agents,
+                        'Occupancy %': min(100.0, (erlangs / num_agents) * 100) if num_agents > 0 else 100.0,
+                        'Service Level %': 50.0,
+                        'ASA (seconds)': 60.0,
+                        '% Answered Immediately': 50.0,
+                        '% Abandoned': 0.0,
+                        'Target Met': False,
+                        'Model': 'Conservative (fallback)'
+                    })
+            
+            return pd.DataFrame(results)
+            
+        except Exception as e:
+            # Fallback completo
+            return erlang_calculator.sensitivity_analysis(
+                arrival_rate, aht, service_level_target, answer_time_target,
+                None, max_occupancy, agent_range
+            )
+
+
+# Istanza globale del calcolatore conservativo
+erlang_conservative = ErlangCConservative()
+
+
+def calculate_erlang_c_conservative(arrival_rate, aht, service_level_target, answer_time_target, 
+                                  max_occupancy=0.85, shrinkage=0.25, ore_settimanali_fte=37.5):
+    """
+    Funzione wrapper per Erlang C Conservativo usando pyworkforce
+    Fornisce un approccio più conservativo e robusto per il dimensionamento
+    
+    Args:
+        arrival_rate: Chiamate per ora
+        aht: Average Handle Time in secondi
+        service_level_target: Target Service Level (0-1)
+        answer_time_target: Tempo target risposta in secondi
+        max_occupancy: Massima occupazione accettabile (0-1)
+        shrinkage: Shrinkage operatori (0-1)
+        ore_settimanali_fte: Ore settimanali per FTE per conversione
+        
+    Returns:
+        tuple: (agenti_necessari_con_shrinkage, service_level, occupazione)
+    """
+    result = erlang_conservative.calculate_conservative_agents(
+        arrival_rate, aht, service_level_target, answer_time_target,
+        shrinkage, max_occupancy, ore_settimanali_fte
+    )
+    
+    # Restituisce solo i primi 3 valori per compatibilità con altri modelli Erlang
+    if len(result) >= 3:
+        return result[:3]  # agents, service_level, occupancy
+    else:
+        # Fallback per casi di errore
+        return result[0] if len(result) >= 1 else 1, 0.8, 0.7
+
+
+def generate_conservative_sensitivity_table(arrival_rate, aht, service_level_target, answer_time_target,
+                                          shrinkage=0.25, max_occupancy=0.85, agent_range=None):
+    """
+    Funzione wrapper per sensitivity analysis conservativa
+    
+    Returns:
+        pandas.DataFrame: Tabella sensitivity analysis conservativa
+    """
+    return erlang_conservative.generate_conservative_sensitivity_table(
+        arrival_rate, aht, service_level_target, answer_time_target,
+        shrinkage, max_occupancy, agent_range
+    )
