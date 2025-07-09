@@ -67,16 +67,27 @@ def check_data_size(df):
         st.stop()
 
 def aggregate_data(df, date_col, target_col, freq, aggregation_method):
-    df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+    # Assicurati che la colonna data sia in formato datetime
+    if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
+        df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
     
-    # Feedback su NaT
+    # Feedback su NaT e rimozione
     nat_rows = df[df[date_col].isna()]
     if not nat_rows.empty:
         st.warning(f"⚠️ Trovate {len(nat_rows)} righe con date non valide (NaT) che verranno escluse.")
         df = df.dropna(subset=[date_col])
+    
+    # Verifica che ci siano ancora dati validi
+    if df.empty:
+        st.error("❌ Nessun dato valido rimasto dopo la rimozione delle date non valide.")
+        st.stop()
 
-    df = df.set_index(date_col).resample(freq).agg({target_col: aggregation_method}).reset_index()
-    return df
+    try:
+        df = df.set_index(date_col).resample(freq).agg({target_col: aggregation_method}).reset_index()
+        return df
+    except Exception as e:
+        st.error(f"❌ Errore durante l'aggregazione dei dati: {str(e)}")
+        st.stop()
 
 # --- Sidebar ---
 with st.sidebar:
@@ -125,8 +136,14 @@ with st.sidebar:
     if df is not None and not df.empty:
         # --- Filtro Intervallo Temporale ---
         with st.expander("🗓️ Filtro Intervallo Temporale", expanded=True):
-            df[date_col] = pd.to_datetime(df[date_col], format=None if use_sample_data else date_format, errors='coerce')
-            df = df.dropna(subset=[date_col]) # Rimuovi NaT prima di calcolare min/max
+            # Converti una sola volta le date
+            if not use_sample_data:
+                df[date_col] = pd.to_datetime(df[date_col], format=date_format, errors='coerce')
+            else:
+                df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+            
+            # Rimuovi NaT prima di calcolare min/max
+            df = df.dropna(subset=[date_col]) 
             
             min_date = df[date_col].min().date()
             max_date = df[date_col].max().date()
@@ -286,86 +303,104 @@ with st.sidebar:
 
 # --- Azione Principale ---
 if (file or use_sample_data) and forecast_button:
-    # Aggregazione e pulizia
-    df_agg = aggregate_data(df, date_col, target_col, freq, aggregation_method)
-    cleaning_preferences = {
-        'remove_zeros': clean_zeros, 'remove_negatives': clip_negatives,
-        'replace_outliers': replace_outliers, 'nan_handling': nan_handling_method
-    }
-    df_clean = clean_data(df_agg, cleaning_preferences, target_col)
+    try:
+        # Aggregazione e pulizia
+        df_agg = aggregate_data(df, date_col, target_col, freq, aggregation_method)
+        cleaning_preferences = {
+            'remove_zeros': clean_zeros, 'remove_negatives': clip_negatives,
+            'replace_outliers': replace_outliers, 'nan_handling': nan_handling_method
+        }
+        df_clean = clean_data(df_agg, cleaning_preferences, target_col)
 
-    # Centralizzazione della gestione della frequenza per coerenza tra i moduli
-    df_clean[date_col] = pd.to_datetime(df_clean[date_col])
-    df_clean = df_clean.set_index(date_col)
-    df_clean = df_clean.asfreq(freq, method='ffill')
-    df_clean = df_clean.reset_index()
-    
-    # Feedback post-pulizia
-    st.markdown("### 📦 Anteprima Dati Post-Cleaning")
-    st.dataframe(df_clean.head())
-    check_data_quality(df_clean, date_col, target_col)
-    check_data_size(df_clean)
+        # Centralizzazione della gestione della frequenza per coerenza tra i moduli
+        df_clean[date_col] = pd.to_datetime(df_clean[date_col])
+        df_clean = df_clean.set_index(date_col)
+        df_clean = df_clean.asfreq(freq).ffill()
+        df_clean = df_clean.reset_index()
+        
+        # Feedback post-pulizia
+        st.markdown("### 📦 Anteprima Dati Post-Cleaning")
+        st.dataframe(df_clean.head())
+        check_data_quality(df_clean, date_col, target_col)
+        check_data_size(df_clean)
 
-    # Plot della serie storica con trendline e filtri
-    st.markdown("### 📈 Serie Storica e Trendline")
-    
-    df_plot = df_clean.sort_values(date_col).reset_index(drop=True)
+        # Validazione aggiuntiva per modelli
+        if len(df_clean) < 10:
+            st.error("⚠️ Dataset troppo piccolo per un forecast affidabile. Servono almeno 10 punti dati.")
+            st.stop()
+        
+        if df_clean[target_col].var() == 0:
+            st.warning("⚠️ La serie temporale ha varianza zero. Il forecast potrebbe non essere significativo.")
 
-    x = np.arange(len(df_plot))
-    m, b = np.polyfit(x, df_plot[target_col], 1)
-    df_plot['trend'] = m * x + b
+        # Plot della serie storica con trendline e filtri
+        st.markdown("### 📈 Serie Storica e Trendline")
+        
+        df_plot = df_clean.sort_values(date_col).reset_index(drop=True)
 
-    fig = go.Figure([
-        go.Scatter(x=df_plot[date_col], y=df_plot[target_col], name='Storico', mode='lines', line=dict(shape='spline', color='#1f77b4')),
-        go.Scatter(x=df_plot[date_col], y=df_plot['trend'], name='Trendline', mode='lines', line=dict(shape='spline', dash='dash', color='#ff7f0e'))
-    ])
-    fig.update_layout(title="Andamento Storico e Trend Lineare", xaxis_title="Data", yaxis_title=target_col)
-    st.plotly_chart(fig, use_container_width=True)
+        x = np.arange(len(df_plot))
+        m, b = np.polyfit(x, df_plot[target_col], 1)
+        df_plot['trend'] = m * x + b
 
-    # Definizione dei parametri base comuni a tutti i modelli
-    base_args = {
-        "df": df_clean,
-        "date_col": date_col,
-        "target_col": target_col,
-        "horizon": horizon,
-        "selected_metrics": selected_metrics
-    }
+        fig = go.Figure([
+            go.Scatter(x=df_plot[date_col], y=df_plot[target_col], name='Storico', mode='lines', line=dict(shape='spline', color='#1f77b4')),
+            go.Scatter(x=df_plot[date_col], y=df_plot['trend'], name='Trendline', mode='lines', line=dict(shape='spline', dash='dash', color='#ff7f0e'))
+        ])
+        fig.update_layout(title="Andamento Storico e Trend Lineare", xaxis_title="Data", yaxis_title=target_col)
+        st.plotly_chart(fig, use_container_width=True)
 
-    # Parametri aggiuntivi per Prophet (unico modello che supporta CV e backtesting avanzato)
-    prophet_args = {
-        **base_args,
-        "freq": freq,
-        "make_forecast": make_forecast,
-        "use_cv": use_cv,
-        "cv_start_date": cv_start_date,
-        "cv_end_date": cv_end_date,
-        "n_folds": n_folds,
-        "fold_horizon": fold_horizon,
-        "test_start_date": test_start,
-        "test_end_date": test_end
-    }
+        # Definizione dei parametri base comuni a tutti i modelli
+        base_args = {
+            "df": df_clean,
+            "date_col": date_col,
+            "target_col": target_col,
+            "horizon": horizon,
+            "selected_metrics": selected_metrics
+        }
 
-    # Esecuzione del modello selezionato
-    if model_tab == "Prophet":
-        run_prophet_model(**prophet_args, params=prophet_params)
+        # Parametri aggiuntivi per Prophet (unico modello che supporta CV e backtesting avanzato)
+        prophet_args = {
+            **base_args,
+            "freq": freq,
+            "make_forecast": make_forecast,
+            "use_cv": use_cv,
+            "cv_start_date": cv_start_date,
+            "cv_end_date": cv_end_date,
+            "n_folds": n_folds,
+            "fold_horizon": fold_horizon,
+            "test_start_date": test_start,
+            "test_end_date": test_end
+        }
 
-    elif model_tab == "ARIMA":
-        run_arima_model(**base_args, params=arima_params)
+        # Esecuzione del modello selezionato con gestione errori
+        try:
+            if model_tab == "Prophet":
+                run_prophet_model(**prophet_args, params=prophet_params)
 
-    elif model_tab == "SARIMA":
-        run_sarima_model(**base_args, params=sarima_params)
+            elif model_tab == "ARIMA":
+                run_arima_model(**base_args, params=arima_params)
 
-    elif model_tab == "Holt-Winters":
-        run_holt_winters_model(**base_args, params=holt_winters_params)
+            elif model_tab == "SARIMA":
+                run_sarima_model(**base_args, params=sarima_params)
 
-    elif model_tab == "Exploratory":
-        # Passa tutti i parametri necessari per l'analisi esplorativa
-        run_exploratory_analysis(
-            **prophet_args,  # Usa prophet_args che contiene tutti i parametri
-            prophet_params=prophet_params,
-            holtwinters_params=holt_winters_params,
-            arima_params=arima_params,
-            sarima_params=sarima_params,
-        )
+            elif model_tab == "Holt-Winters":
+                run_holt_winters_model(**base_args, params=holt_winters_params)
+
+            elif model_tab == "Exploratory":
+                # Passa tutti i parametri necessari per l'analisi esplorativa
+                run_exploratory_analysis(
+                    **prophet_args,  # Usa prophet_args che contiene tutti i parametri
+                    prophet_params=prophet_params,
+                    holtwinters_params=holt_winters_params,
+                    arima_params=arima_params,
+                    sarima_params=sarima_params,
+                )
+        except Exception as model_error:
+            st.error(f"❌ Errore durante l'esecuzione del modello {model_tab}: {str(model_error)}")
+            st.info("💡 Suggerimenti: Controlla i parametri del modello o prova con un dataset diverso.")
+            
+    except Exception as e:
+        st.error(f"❌ Errore durante l'elaborazione dei dati: {str(e)}")
+        st.info("💡 Verifica il formato del file CSV e i parametri di configurazione.")
+        
 elif not use_sample_data and not file:
     st.info("☝️ Per iniziare, carica un file CSV o seleziona il dataset di esempio dalla sidebar.")

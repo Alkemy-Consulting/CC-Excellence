@@ -6,48 +6,115 @@ from prophet.plot import plot_plotly, plot_components_plotly
 from prophet.diagnostics import cross_validation, performance_metrics
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import io
+import warnings
 from modules.metrics_module import compute_metrics, compute_all_metrics
 
 
 def build_and_forecast_prophet(df, freq='D', periods=30, use_holidays=False, yearly=True, weekly=False, daily=False, seasonality_mode='additive', changepoint_prior_scale=0.05):
+    """
+    Costruisce e addestra un modello Prophet con gestione robusta degli errori.
+    """
+    # Validazione input
+    if df.empty or len(df) < 2:
+        raise ValueError("Il dataset deve contenere almeno 2 punti dati per Prophet")
+    
+    # Verifica colonne richieste
+    required_cols = ['ds', 'y']
+    if not all(col in df.columns for col in required_cols):
+        raise ValueError(f"Il DataFrame deve contenere le colonne: {required_cols}")
+    
+    # Validazione dati
+    if df['y'].isna().all():
+        raise ValueError("Tutti i valori target sono NaN")
+    
+    if df['y'].var() == 0:
+        warnings.warn("La serie temporale ha varianza zero. Il modello potrebbe non essere significativo.")
+    
     holidays = None
     if use_holidays:
-        years = df['ds'].dt.year.unique()
-        holiday_dates = [f"{year}-12-25" for year in years]  # Example: Christmas
-        holidays = pd.DataFrame({'ds': pd.to_datetime(holiday_dates), 'holiday': 'holiday'})
+        try:
+            years = df['ds'].dt.year.unique()
+            # Esempio più realistico con festività multiple
+            holiday_dates = []
+            for year in years:
+                holiday_dates.extend([
+                    f"{year}-01-01",  # Capodanno
+                    f"{year}-12-25",  # Natale
+                    f"{year}-08-15",  # Ferragosto (per Italia)
+                ])
+            holidays = pd.DataFrame({
+                'ds': pd.to_datetime(holiday_dates), 
+                'holiday': 'holiday'
+            })
+        except Exception as e:
+            warnings.warn(f"Errore nella creazione del calendario festività: {e}")
+            holidays = None
 
-    model = Prophet(
-        yearly_seasonality=yearly,
-        weekly_seasonality=weekly,
-        daily_seasonality=daily,
-        seasonality_mode=seasonality_mode,
-        changepoint_prior_scale=changepoint_prior_scale,
-        holidays=holidays
-    )
+    try:
+        # Configura Prophet con parametri validati
+        model = Prophet(
+            yearly_seasonality=yearly,
+            weekly_seasonality=weekly,
+            daily_seasonality=daily,
+            seasonality_mode=seasonality_mode,
+            changepoint_prior_scale=max(0.001, min(0.5, changepoint_prior_scale)),  # Limita range
+            holidays=holidays,
+            uncertainty_samples=False  # Disabilita per performance
+        )
 
-    model.fit(df)
-    future = model.make_future_dataframe(periods=periods, freq=freq)
-    forecast = model.predict(future)
-    return model, forecast
+        # Sopprimi warning di Prophet se necessario
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            model.fit(df)
+        
+        future = model.make_future_dataframe(periods=periods, freq=freq)
+        forecast = model.predict(future)
+        
+        return model, forecast
+        
+    except Exception as e:
+        raise RuntimeError(f"Errore durante l'addestramento del modello Prophet: {e}")
 
 def evaluate_forecast(df, forecast):
-    df = df.copy()
-    forecast = forecast.copy()
+    """
+    Valuta le performance del forecast con gestione robusta degli errori.
+    """
+    try:
+        df = df.copy()
+        forecast = forecast.copy()
 
-    df['ds'] = pd.to_datetime(df['ds'])
-    forecast['ds'] = pd.to_datetime(forecast['ds'])
+        # Assicurati che le date siano in formato datetime
+        df['ds'] = pd.to_datetime(df['ds'])
+        forecast['ds'] = pd.to_datetime(forecast['ds'])
 
-    eval_df = df[df['ds'].isin(forecast['ds'])].set_index('ds')
-    pred_df = forecast.set_index('ds').loc[eval_df.index]
+        # Join dei dati per valutazione
+        eval_df = df[df['ds'].isin(forecast['ds'])].set_index('ds')
+        pred_df = forecast.set_index('ds').loc[eval_df.index]
 
-    df_combined = eval_df.join(pred_df[['yhat']], how='inner')
+        df_combined = eval_df.join(pred_df[['yhat']], how='inner')
 
-    metrics = compute_all_metrics(df_combined['y'], df_combined['yhat'])
-    metrics['combined'] = df_combined
-    return metrics
+        # Verifica che ci siano dati da valutare
+        if df_combined.empty:
+            raise ValueError("Nessun dato comune tra observed e forecast per la valutazione")
+
+        metrics = compute_all_metrics(df_combined['y'], df_combined['yhat'])
+        metrics['combined'] = df_combined
+        
+        return metrics
+        
+    except Exception as e:
+        st.error(f"Errore durante la valutazione del forecast: {e}")
+        return {'combined': pd.DataFrame(), 'MAE': np.nan, 'MSE': np.nan, 'RMSE': np.nan, 'MAPE': np.nan, 'SMAPE': np.nan}
 
 def plot_forecast(model, forecast):
-    return plot_plotly(model, forecast)
+    """
+    Crea il plot del forecast con gestione errori.
+    """
+    try:
+        return plot_plotly(model, forecast)
+    except Exception as e:
+        st.error(f"Errore nella generazione del grafico: {e}")
+        return None
 
 def plot_components(model, forecast):
     return plot_components_plotly(model, forecast)
