@@ -3,179 +3,20 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-from scipy.stats import poisson
-from scipy.special import loggamma
 import datetime
 from io import StringIO
+
+# Import dei moduli specializzati per calcoli avanzati
+from modules.erlang_module import calculate_erlang_c, calculate_erlang_a, generate_sensitivity_table
+from modules.simulation_module import calculate_simulation
+from modules.deterministic_module import calculate_deterministic, calculate_outbound_deterministic
 
 st.set_page_config(layout="wide")
 
 st.title("🧮 Capacity Sizing Tool")
 st.markdown("Strumento avanzato per il calcolo del fabbisogno di operatori per Contact Center. Supporta diversi modelli di calcolo (Erlang C/A, Simulazione, Deterministico) con analisi What-If e Stress Test.")
 
-# --- Funzioni di Calcolo Avanzate ---
-
-def erlang_c(arrival_rate, aht, service_level_target, answer_time_target):
-    """
-    Calcola il numero di agenti necessari utilizzando la formula di Erlang C.
-    Implementazione accademicamente rigorosa e numericamente stabile.
-    
-    Args:
-        arrival_rate: λ - Numero di chiamate per ora
-        aht: Average Handle Time in secondi
-        service_level_target: Target service level (0-1)
-        answer_time_target: Tempo target di risposta in secondi
-    
-    Returns:
-        tuple: (agenti_necessari, service_level_ottenuto, occupazione)
-    """
-    if arrival_rate <= 0:
-        return 0, 1.0, 0.0
-
-    # Intensità di traffico in Erlang (A = λ * μ)
-    traffic_intensity = (arrival_rate * aht) / 3600
-    
-    if traffic_intensity <= 0:
-        return 1, 1.0, 0.0
-    
-    # Inizializza con il minimo teorico più margine di sicurezza
-    num_agents = max(1, int(np.ceil(traffic_intensity * 1.1)))
-    
-    max_iterations = 300  # Limite per evitare loop infiniti
-    iteration = 0
-    
-    while iteration < max_iterations:
-        iteration += 1
-        
-        # Calcolo stabilizzato della probabilità di attesa (Erlang C)
-        try:
-            if num_agents <= traffic_intensity:
-                # Sistema saturo - tutte le chiamate attendono
-                prob_wait = 1.0
-                service_level = 0.0
-            else:
-                # Calcolo numericamente stabile usando logaritmi per grandi valori
-                if traffic_intensity > 50 or num_agents > 100:
-                    # Usa approssimazione per evitare overflow
-                    # Log della probabilità di attesa
-                    log_num = num_agents * np.log(traffic_intensity) - loggamma(num_agents + 1)
-                    
-                    # Calcola denominatore in log space
-                    log_terms = []
-                    for k in range(num_agents):
-                        if k == 0:
-                            log_terms.append(0)  # log(1)
-                        else:
-                            log_terms.append(k * np.log(traffic_intensity) - loggamma(k + 1))
-                    
-                    # Aggiunge termine finale
-                    log_final_term = log_num - np.log(num_agents - traffic_intensity)
-                    log_terms.append(log_final_term)
-                    
-                    # Calcola somma usando log-sum-exp trick
-                    max_log = max(log_terms)
-                    sum_exp = sum(np.exp(log_term - max_log) for log_term in log_terms)
-                    
-                    prob_wait = np.exp(log_final_term - max_log) / sum_exp
-                    
-                else:
-                    # Calcolo diretto per valori piccoli
-                    numerator = (traffic_intensity ** num_agents) / np.math.factorial(num_agents)
-                    
-                    # Denominatore: somma dei termini da 0 a num_agents-1 + termine finale
-                    denominator = sum((traffic_intensity ** k) / np.math.factorial(k) 
-                                    for k in range(num_agents))
-                    denominator += numerator / (num_agents - traffic_intensity)
-                    
-                    prob_wait = (numerator / (num_agents - traffic_intensity)) / denominator
-                
-                # Assicura che prob_wait sia nel range [0,1]
-                prob_wait = max(0, min(1, prob_wait))
-                
-                # Calcolo del Service Level con formula esatta
-                exponential_term = np.exp(-(num_agents - traffic_intensity) * answer_time_target / aht)
-                service_level = 1 - prob_wait * exponential_term
-                
-        except (OverflowError, ZeroDivisionError, ValueError):
-            # Fallback robusto per casi numerici estremi
-            if num_agents > traffic_intensity * 2:
-                prob_wait = 0.01
-                service_level = 0.99
-            else:
-                prob_wait = 0.95
-                service_level = 0.05
-        
-        # Calcolo dell'occupazione (ρ = A/n)
-        occupancy = traffic_intensity / num_agents if num_agents > 0 else 0
-        
-        # Condizioni di terminazione
-        if service_level >= service_level_target:
-            return num_agents, service_level, occupancy
-        elif occupancy < 0.05:  # Se l'occupazione è troppo bassa, ferma
-            return num_agents, service_level, occupancy
-        elif iteration > max_iterations - 10 and service_level > service_level_target * 0.8:
-            # Vicino al target e molte iterazioni - accetta risultato
-            return num_agents, service_level, occupancy
-        else:
-            num_agents += 1
-    
-    # Se esce dal loop senza convergenza
-    return num_agents, service_level, occupancy
-    
-    # Se raggiungiamo il limite di iterazioni
-    return num_agents, service_level, occupancy
-
-def erlang_a(arrival_rate, aht, patience, service_level_target, answer_time_target):
-    """
-    Calcola utilizzando Erlang A (considera l'abbandono delle chiamate)
-    """
-    # Implementazione semplificata di Erlang A
-    traffic_intensity = arrival_rate * aht / 3600
-    basic_agents, sl, occ = erlang_c(arrival_rate, aht, service_level_target, answer_time_target)
-    
-    # Fattore di correzione per l'abbandono
-    abandon_factor = np.exp(-answer_time_target / patience) if patience > 0 else 0
-    adjusted_sl = sl + (1 - sl) * abandon_factor
-    
-    # Se il SL è migliorato dall'abbandono, possiamo ridurre gli agenti
-    if adjusted_sl > service_level_target and basic_agents > 1:
-        return max(1, basic_agents - 1), adjusted_sl, traffic_intensity / max(1, basic_agents - 1)
-    
-    return basic_agents, adjusted_sl, occ
-
-def deterministic_model(calls_per_hour, aht, shrinkage_factor):
-    """
-    Modello deterministico semplice
-    """
-    workload_hours = calls_per_hour * aht / 3600
-    agents_needed = workload_hours / (1 - shrinkage_factor) if (1 - shrinkage_factor) > 0 else workload_hours
-    occupancy = workload_hours / agents_needed if agents_needed > 0 else 0
-    return np.ceil(agents_needed), 1.0, occupancy
-
-def simulation_model(calls_per_hour, aht, service_level_target, num_simulations=1000):
-    """
-    Modello di simulazione Monte Carlo semplificato
-    """
-    # Simulazione semplificata - per una implementazione completa servirebbe più logica
-    base_agents, sl, occ = erlang_c(calls_per_hour, aht, service_level_target, 20)
-    
-    # Aggiunge variabilità tramite simulazione
-    simulation_results = []
-    for _ in range(num_simulations):
-        # Variabilità nei chiamate (+/- 20%)
-        sim_calls = calls_per_hour * np.random.uniform(0.8, 1.2)
-        # Variabilità nell'AHT (+/- 15%)
-        sim_aht = aht * np.random.uniform(0.85, 1.15)
-        
-        sim_agents, sim_sl, sim_occ = erlang_c(sim_calls, sim_aht, service_level_target, 20)
-        simulation_results.append((sim_agents, sim_sl, sim_occ))
-    
-    # Statistiche della simulazione
-    agents_needed = np.percentile([r[0] for r in simulation_results], 95)  # 95° percentile
-    avg_sl = np.mean([r[1] for r in simulation_results])
-    avg_occ = np.mean([r[2] for r in simulation_results])
-    
-    return int(agents_needed), avg_sl, avg_occ
+# --- Funzioni Utility ---
 
 def calculate_costs(agents_needed, ral_annuale, giorni_lavorativi, moltiplicatore_costo, ore_lavoro_giorno=8):
     """
@@ -190,7 +31,6 @@ def calculate_costs(agents_needed, ral_annuale, giorni_lavorativi, moltiplicator
         'costo_mensile_fte': costo_mensile_fte,
         'costo_totale_piano': costo_totale_piano
     }
-
 def apply_what_if_analysis(base_results, model_type, model_params, working_hours, cost_params, volume_var, aht_var, sl_var):
     """
     Applica variazioni What-If sui parametri base e ricalcola con i nuovi parametri
@@ -304,27 +144,38 @@ def calculate_capacity_requirements(df, model_type, model_params, working_hours,
         
         # Calcolo basato sul modello selezionato e tipologia operativa
         if model_type == "Erlang C":
-            agents, sl, occ = erlang_c(
+            agents, sl, occ = calculate_erlang_c(
                 calls, 
                 model_params['aht'], 
                 model_params['service_level'] / 100, 
-                model_params['answer_time']
+                model_params['answer_time'],
+                model_params.get('max_occupancy', 0.85),
+                model_params.get('shrinkage', 0.25),
+                model_params.get('ore_settimanali_fte', 37.5)
             )
         elif model_type == "Erlang A":
-            agents, sl, occ = erlang_a(
+            agents, sl, occ = calculate_erlang_a(
                 calls,
                 model_params['aht'],
                 model_params.get('patience', 60),
                 model_params['service_level'] / 100,
-                model_params['answer_time']
+                model_params['answer_time'],
+                model_params.get('max_occupancy', 0.85),
+                model_params.get('shrinkage', 0.25),
+                model_params.get('ore_settimanali_fte', 37.5)
             )
         elif model_type == "Deterministico":
             # Per INBOUND
             if 'aht' in model_params:
-                agents, sl, occ = deterministic_model(
+                agents, sl, occ = calculate_deterministic(
                     calls,
                     model_params['aht'],
-                    model_params.get('shrinkage', 0.3)
+                    model_params.get('shrinkage', 0.25),
+                    model_params.get('slot_duration', 30) / 60,  # Converti in ore
+                    0.90,  # efficiency_factor
+                    60,    # break_time in minuti
+                    8,     # training_time ore/mese
+                    model_params.get('ore_settimanali_fte', 37.5)
                 )
             # Per OUTBOUND
             else:
@@ -332,25 +183,29 @@ def calculate_capacity_requirements(df, model_type, model_params, working_hours,
                 hourly_rate = calls / slot_duration_hours
                 cph = model_params.get('cph', 15)
                 
-                # Calcolo base operatori necessari
-                agents = hourly_rate / cph if cph > 0 else 0
-                
-                # Service Level per outbound è diverso - rappresenta success rate
-                sl = 0.95  # Success rate tipico per outbound
-                
-                # Occupazione calcolata correttamente
-                if agents > 0:
-                    occ = min(0.95, hourly_rate / (cph * agents))
-                else:
-                    occ = 0
+                # Usa modulo deterministico specializzato per outbound
+                agents, sl, occ = calculate_outbound_deterministic(
+                    calls,  # target_contacts
+                    cph,    # contacts_per_hour
+                    slot_duration_hours,  # period_duration
+                    model_params.get('shrinkage', 0.25),
+                    0.90,   # efficiency
+                    model_params.get('ore_settimanali_fte', 37.5)
+                )
                     
         elif model_type == "Simulazione":
             # Per INBOUND
             if 'aht' in model_params:
-                agents, sl, occ = simulation_model(
+                agents, sl, occ = calculate_simulation(
                     calls,
                     model_params['aht'],
-                    model_params['service_level'] / 100
+                    model_params['service_level'] / 100,
+                    model_params['answer_time'],
+                    model_params.get('max_occupancy', 0.85),
+                    model_params.get('shrinkage', 0.25),
+                    model_params.get('ore_settimanali_fte', 37.5),
+                    model_params.get('patience', 90),
+                    min(50, 1000)  # num_simulations limitato per performance
                 )
             # Per OUTBOUND
             else:
@@ -373,28 +228,49 @@ def calculate_capacity_requirements(df, model_type, model_params, working_hours,
                     occ = min(0.95, hourly_rate / (cph * agents * np.random.uniform(0.95, 1.05)))
                 else:
                     occ = 0
+            # Per OUTBOUND con simulazione
+            else:
+                slot_duration_hours = model_params.get('slot_duration', 30) / 60
+                hourly_rate = calls / slot_duration_hours
+                cph = model_params.get('cph', 15)
+                
+                # Simulazione semplificata per outbound con shrinkage
+                base_agents = hourly_rate / cph if cph > 0 else 0
+                shrinkage = model_params.get('shrinkage', 0.25)
+                
+                # Applica shrinkage e variabilità per simulazione
+                agents = base_agents / (1 - shrinkage) if shrinkage < 1.0 else base_agents * 2
+                
+                # Aggiunge variabilità tipica per outbound
+                variability_factor = np.random.uniform(0.9, 1.15)
+                agents = agents * variability_factor
+                
+                # Success rate con variabilità
+                sl = np.random.uniform(0.85, 0.98)
+                
+                # Occupazione corretta
+                if agents > 0:
+                    occ = min(0.95, base_agents / agents)
+                else:
+                    occ = 0
         else:
             # Fallback generico
             agents, sl, occ = 1, 0.8, 0.7
         
-        # Applica shrinkage se non già considerata
-        if model_type not in ["Deterministico"]:
-            shrinkage = model_params.get('shrinkage', 0.3)
-            agents_with_shrinkage = agents / (1 - shrinkage)
-        else:
-            agents_with_shrinkage = agents
+        # Lo shrinkage è già applicato nei moduli specializzati, non serve riapplicarlo
+        agents_final = agents
         
         # Calcola i costi
         slot_duration_hours = model_params.get('slot_duration', 30) / 60
         cost_per_hour = cost_params['costo_orario']
-        total_cost = np.ceil(agents_with_shrinkage) * cost_per_hour * slot_duration_hours
+        total_cost = np.ceil(agents_final) * cost_per_hour * slot_duration_hours
         
         results.append({
             'Data': row.get('Data', ''),
             'Giorno': day,
             'Time slot': time_slot,
             'Numero di chiamate': calls,
-            'Operatori necessari': np.ceil(agents_with_shrinkage),
+            'Operatori necessari': np.ceil(agents_final),
             'Service Level Stimato': sl,
             'Occupazione Stimata': occ,
             'Costo Stimato (€)': total_cost,
@@ -402,6 +278,163 @@ def calculate_capacity_requirements(df, model_type, model_params, working_hours,
         })
     
     return pd.DataFrame(results)
+
+def generate_erlang_sensitivity_table(arrival_rate, aht, service_level_target, answer_time_target, patience=None, model_type="Erlang C", max_occupancy=0.85):
+    """
+    Genera una tabella di sensitivity analysis professionale per Erlang C/A
+    Calcola metriche accurate secondo gli standard dei call center tools
+    """
+    # Calcola intensità di traffico (Erlang)
+    traffic_intensity = (arrival_rate * aht) / 3600
+    
+    # Determina range di agenti da testare
+    min_theoretical = max(1, int(np.ceil(traffic_intensity)))
+    agent_range = range(min_theoretical, min_theoretical + 15)
+    
+    sensitivity_data = []
+    
+    for num_agents in agent_range:
+        try:
+            # Calcolo occupazione
+            occupancy = traffic_intensity / num_agents if num_agents > 0 else 0
+            
+            if num_agents <= traffic_intensity:
+                # Sistema instabile/sovraccarico
+                sensitivity_data.append({
+                    'Number of Agents': num_agents,
+                    'Occupancy %': min(100.0, occupancy * 100),
+                    'Service Level %': 0.0,
+                    'ASA (seconds)': 999.9,
+                    '% Answered Immediately': 0.0,
+                    '% Abandoned': 95.0 if model_type == "Erlang A" else 0.0,
+                    'Target Met': False
+                })
+                continue
+            
+            # Calcolo Erlang C (probabilità di attesa)
+            prob_wait = calculate_erlang_c_probability(traffic_intensity, num_agents)
+            
+            # % Answered Immediately (probabilità di non attesa)
+            pct_immediate = (1 - prob_wait) * 100
+            
+            # Average Speed of Answer (ASA) in secondi
+            if prob_wait > 0:
+                asa = (prob_wait * aht) / (num_agents - traffic_intensity)
+            else:
+                asa = 0.0
+            
+            if model_type == "Erlang A" and patience and patience > 0:
+                # Erlang A con abbandoni
+                # Service Level considerando abbandoni
+                abandon_rate = prob_wait * (1 - np.exp(-answer_time_target / patience))
+                service_level = (1 - prob_wait * np.exp(-(num_agents - traffic_intensity) * answer_time_target / aht)) * 100
+                pct_abandoned = abandon_rate * 100
+                
+                # ASA corretto per abbandoni
+                if abandon_rate < 1:
+                    effective_waiting_calls = prob_wait * (1 - abandon_rate)
+                    if effective_waiting_calls > 0:
+                        asa = (effective_waiting_calls * aht) / (num_agents - traffic_intensity)
+                
+            else:
+                # Erlang C standard (senza abbandoni)
+                # Service Level = probabilità di risposta entro answer_time_target
+                service_level = (1 - prob_wait * np.exp(-(num_agents - traffic_intensity) * answer_time_target / aht)) * 100
+                pct_abandoned = 0.0
+            
+            # Verifica se i target sono soddisfatti
+            target_met = (service_level >= service_level_target * 100) and (occupancy <= max_occupancy)
+            
+            # Assicura valori ragionevoli
+            service_level = max(0, min(100, service_level))
+            occupancy_pct = max(0, min(100, occupancy * 100))
+            asa = max(0, min(999.9, asa))
+            pct_immediate = max(0, min(100, pct_immediate))
+            pct_abandoned = max(0, min(100, pct_abandoned))
+            
+            sensitivity_data.append({
+                'Number of Agents': num_agents,
+                'Occupancy %': occupancy_pct,
+                'Service Level %': service_level,
+                'ASA (seconds)': asa,
+                '% Answered Immediately': pct_immediate,
+                '% Abandoned': pct_abandoned,
+                'Target Met': target_met
+            })
+            
+        except Exception as e:
+            # Fallback per errori numerici
+            print(f"Errore calcolo per {num_agents} agenti: {e}")
+            sensitivity_data.append({
+                'Number of Agents': num_agents,
+                'Occupancy %': min(100.0, (traffic_intensity / num_agents) * 100) if num_agents > 0 else 100.0,
+                'Service Level %': 50.0,
+                'ASA (seconds)': 60.0,
+                '% Answered Immediately': 50.0,
+                '% Abandoned': 10.0,
+                'Target Met': False
+            })
+    
+    return pd.DataFrame(sensitivity_data)
+
+def calculate_erlang_c_probability(traffic_intensity, num_agents):
+    """
+    Calcola la probabilità di attesa secondo la formula Erlang C
+    Implementazione robusta per grandi valori
+    """
+    if num_agents <= traffic_intensity:
+        return 1.0
+    
+    try:
+        # Usa logaritmi per evitare overflow
+        if traffic_intensity > 100 or num_agents > 100:
+            # Log-space calculation per stabilità numerica
+            try:
+                from scipy.special import loggamma
+                
+                log_numerator = num_agents * np.log(traffic_intensity) - loggamma(num_agents + 1)
+                
+                # Calcola denominatore in log space
+                log_terms = []
+                for k in range(num_agents):
+                    if k == 0:
+                        log_terms.append(0)  # log(1)
+                    else:
+                        log_terms.append(k * np.log(traffic_intensity) - loggamma(k + 1))
+                
+                # Termine finale del denominatore
+                log_final_term = log_numerator - np.log(num_agents - traffic_intensity)
+                log_terms.append(log_final_term)
+                
+                # Log-sum-exp trick
+                max_log = max(log_terms)
+                sum_exp = sum(np.exp(log_term - max_log) for log_term in log_terms)
+                
+                prob_wait = np.exp(log_final_term - max_log) / sum_exp
+                
+            except ImportError:
+                # Fallback senza scipy
+                prob_wait = 0.1 if num_agents > traffic_intensity * 1.2 else 0.3
+            
+        else:
+            # Calcolo diretto per valori piccoli
+            numerator = (traffic_intensity ** num_agents) / np.math.factorial(num_agents)
+            
+            # Denominatore: somma da 0 a num_agents-1 + termine finale
+            denominator = sum((traffic_intensity ** k) / np.math.factorial(k) for k in range(num_agents))
+            final_term = numerator / (num_agents - traffic_intensity)
+            denominator += final_term
+            
+            prob_wait = final_term / denominator
+            
+        return max(0, min(1, prob_wait))
+        
+    except (OverflowError, ZeroDivisionError, ValueError):
+        # Fallback per casi estremi
+        if num_agents > traffic_intensity * 1.5:
+            return 0.01  # Sistema ben dimensionato
+        else:
+            return 0.5   # Sistema al limite
 
 # --- Funzioni di Supporto e UI ---
 
@@ -593,8 +626,12 @@ with st.sidebar:
                                         help="Percentuale chiamate risposta in tempo")
                 answer_time = st.slider("Tempo risposta target (secondi)", 5, 60, 20,
                                       help="Tempo massimo risposta per SL")
+                max_occupancy = st.slider("Max Occupancy (%)", 50, 95, 85,
+                                        help="Soglia massima di occupazione accettabile")
                 shrinkage = st.slider("Shrinkage (%)", 0, 50, 25,
                                     help="Tempo non produttivo operatori")
+                ore_settimanali_fte = st.slider("Ore settimanali per FTE", 30.0, 45.0, 37.5, 0.5,
+                                              help="Ore lavorative settimanali per calcolo FTE")
                 
                 if selected_model == "Erlang A":
                     patience = st.slider("Pazienza clienti (secondi)", 30, 300, 90,
@@ -605,17 +642,22 @@ with st.sidebar:
                     'aht': aht,
                     'service_level': service_level,
                     'answer_time': answer_time,
+                    'max_occupancy': max_occupancy / 100,
                     'shrinkage': shrinkage / 100,
+                    'ore_settimanali_fte': ore_settimanali_fte,
                     'slot_duration': slot_duration
                 })
             
             elif selected_model == "Deterministico":
                 aht = st.slider("Average Handle Time (secondi)", 60, 800, 300)
                 shrinkage = st.slider("Shrinkage (%)", 0, 50, 25)
+                ore_settimanali_fte = st.slider("Ore settimanali per FTE", 30.0, 45.0, 37.5, 0.5,
+                                              help="Ore lavorative settimanali per calcolo FTE")
                 
                 st.session_state.model_params.update({
                     'aht': aht,
                     'shrinkage': shrinkage / 100,
+                    'ore_settimanali_fte': ore_settimanali_fte,
                     'slot_duration': slot_duration
                 })
         
@@ -629,7 +671,7 @@ with st.sidebar:
                 'shrinkage': shrinkage / 100,
                 'slot_duration': slot_duration
             })
-    
+
     # 5. Costi
     with st.expander("💰 Stima Costi"):
         st.markdown("**Configurazione parametri economici**")
@@ -796,7 +838,7 @@ if run_calculation:
             st.metric("📊 Occupazione Media", f"{avg_occupancy:.1%}")
         
         # Tabs per diverse visualizzazioni
-        tab1, tab2, tab3, tab4 = st.tabs(["📈 Dashboard", "🗓️ Pianificazione", "📋 Dettagli", "🔄 Scenari"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Dashboard", "🗓️ Pianificazione", "📋 Dettagli", "🔬 Sensitivity", "🔄 Scenari"])
         
         with tab1:
             st.markdown("#### Dashboard Operativa")
@@ -949,8 +991,7 @@ if run_calculation:
                         hovertemplate="Giorno: %{x}<br>Ora: %{y}<br>Service Level: %{z:.1f}%<extra></extra>",
                         showscale=True,
                         colorbar=dict(
-                            title="Service Level (%)",
-                            titleside="right",
+                            title=dict(text="Service Level (%)", side="right"),
                             thickness=15,
                             len=0.7,
                             tickmode="linear",
@@ -1051,6 +1092,162 @@ if run_calculation:
             )
         
         with tab4:
+            st.markdown("#### 🔬 Sensitivity Analysis")
+            
+            if selected_model in ["Erlang C", "Erlang A"] and 'aht' in st.session_state.model_params:
+                st.info("📊 **Analisi di sensitività professionale** - Tabella delle performance al variare del numero di agenti, utilizzando i parametri correnti della sidebar")
+                
+                # Parametri per la sensitivity
+                col1, col2 = st.columns(2)
+                with col1:
+                    test_arrival_rate = st.number_input("Test Arrival Rate (chiamate/ora)", 
+                                                      min_value=1, max_value=1000, value=100,
+                                                      help="Numero di chiamate per ora da testare")
+                with col2:
+                    max_occupancy = st.slider("Max Occupazione Target (%)", 
+                                            50, 95, 85,
+                                            help="Soglia massima di occupazione accettabile") / 100
+                
+                # Genera automaticamente la tabella con i parametri correnti della sidebar
+                with st.spinner("Generazione tabella sensitivity professionale..."):
+                    # Usa i parametri del modello corrente dalla sidebar
+                    aht = st.session_state.model_params['aht']
+                    service_level_target = st.session_state.model_params['service_level'] / 100
+                    answer_time_target = st.session_state.model_params['answer_time']
+                    patience = st.session_state.model_params.get('patience', None)
+                    # Usa il max_occupancy sia dal slider che dai parametri del modello
+                    model_max_occupancy = st.session_state.model_params.get('max_occupancy', max_occupancy)
+                    
+                    sensitivity_df = generate_erlang_sensitivity_table(
+                        test_arrival_rate,
+                        aht,
+                        service_level_target,
+                        answer_time_target,
+                        patience,
+                        selected_model,
+                        min(max_occupancy, model_max_occupancy)  # Usa il valore più restrittivo
+                    )
+                    
+                    # Formattazione della tabella professionale
+                    def format_sensitivity_table(df):
+                        return df.style.format({
+                            'Occupancy %': '{:.1f}%',
+                            'Service Level %': '{:.1f}%',
+                            'ASA (seconds)': '{:.1f}',
+                            '% Answered Immediately': '{:.1f}%',
+                            '% Abandoned': '{:.1f}%'
+                        }).apply(
+                            lambda x: ['background-color: #e8f5e8; font-weight: bold; color: #2d5a2d' if v 
+                                      else 'background-color: #ffe6e6; color: #8b0000' if not v and isinstance(v, bool)
+                                      else '' for v in x], 
+                            subset=['Target Met']
+                        ).apply(
+                            lambda x: ['background-color: #f0f8ff' if i % 2 == 0 else '' for i in range(len(x))],
+                            axis=0
+                        )
+                    
+                    st.markdown("**📋 Professional Erlang Sensitivity Table**")
+                    st.markdown(f"*Parametri: {test_arrival_rate} chiamate/ora, AHT {aht}s, SL target {service_level_target:.0%}, Answer time {answer_time_target}s*")
+                    
+                    st.dataframe(format_sensitivity_table(sensitivity_df), use_container_width=True, hide_index=True)
+                    
+                    # Evidenzia la configurazione ottimale
+                    optimal_rows = sensitivity_df[sensitivity_df['Target Met'] == True]
+                    if not optimal_rows.empty:
+                        optimal_row = optimal_rows.iloc[0]
+                        st.success(f"✅ **Configurazione ottimale:** {optimal_row['Number of Agents']} agenti → SL {optimal_row['Service Level %']:.1f}%, Occupancy {optimal_row['Occupancy %']:.1f}%, ASA {optimal_row['ASA (seconds)']:.1f}s")
+                    else:
+                        st.warning("⚠️ Nessuna configurazione soddisfa tutti i criteri nel range testato")
+                    
+                    # Grafici di sensitivity professionali
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Service Level Chart
+                        fig_sl = go.Figure()
+                        fig_sl.add_trace(go.Scatter(
+                            x=sensitivity_df['Number of Agents'], 
+                            y=sensitivity_df['Service Level %'],
+                            mode='lines+markers',
+                            name='Service Level',
+                            line=dict(color='blue', width=3),
+                            marker=dict(size=8)
+                        ))
+                        fig_sl.add_hline(y=service_level_target*100, line_dash="dash", 
+                                       line_color="red", annotation_text=f"Target SL ({service_level_target:.0%})")
+                        fig_sl.update_layout(
+                            title="Service Level vs Numero Agenti",
+                            xaxis_title="Number of Agents",
+                            yaxis_title="Service Level (%)",
+                            height=400
+                        )
+                        st.plotly_chart(fig_sl, use_container_width=True)
+                    
+                    with col2:
+                        # Occupancy Chart
+                        fig_occ = go.Figure()
+                        fig_occ.add_trace(go.Scatter(
+                            x=sensitivity_df['Number of Agents'], 
+                            y=sensitivity_df['Occupancy %'],
+                            mode='lines+markers',
+                            name='Occupancy',
+                            line=dict(color='orange', width=3),
+                            marker=dict(size=8)
+                        ))
+                        fig_occ.add_hline(y=max_occupancy*100, line_dash="dash", 
+                                        line_color="red", annotation_text=f"Max Occupancy ({max_occupancy:.0%})")
+                        fig_occ.update_layout(
+                            title="Occupazione vs Numero Agenti",
+                            xaxis_title="Number of Agents",
+                            yaxis_title="Occupancy (%)",
+                            height=400
+                        )
+                        st.plotly_chart(fig_occ, use_container_width=True)
+                    
+                    # Grafico combinato ASA e % Answered Immediately
+                    st.markdown("**⏱️ Tempi di Risposta**")
+                    fig_response = go.Figure()
+                    
+                    fig_response.add_trace(go.Scatter(
+                        x=sensitivity_df['Number of Agents'], 
+                        y=sensitivity_df['ASA (seconds)'],
+                        mode='lines+markers',
+                        name='ASA (seconds)',
+                        line=dict(color='red', width=2),
+                        yaxis='y'
+                    ))
+                    
+                    fig_response.add_trace(go.Scatter(
+                        x=sensitivity_df['Number of Agents'], 
+                        y=sensitivity_df['% Answered Immediately'],
+                        mode='lines+markers',
+                        name='% Answered Immediately',
+                        line=dict(color='green', width=2),
+                        yaxis='y2'
+                    ))
+                    
+                    fig_response.update_layout(
+                        title="ASA e % Risposta Immediata vs Numero Agenti",
+                        xaxis_title="Number of Agents",
+                        yaxis=dict(title="ASA (seconds)", side='left'),
+                        yaxis2=dict(title="% Answered Immediately", side='right', overlaying='y'),
+                        height=400
+                    )
+                    
+                    st.plotly_chart(fig_response, use_container_width=True)
+                    
+                    # Download sensitivity table
+                    csv_sensitivity = convert_df_to_csv(sensitivity_df)
+                    st.download_button(
+                        label="📥 Scarica Sensitivity Analysis CSV",
+                        data=csv_sensitivity,
+                        file_name=f"erlang_sensitivity_{selected_model.lower().replace(' ', '_')}_{test_arrival_rate}cph_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.csv",
+                        mime="text/csv"
+                    )
+            else:
+                st.info("🔬 **Sensitivity Analysis** è disponibile solo per i modelli Erlang C e Erlang A con operazioni INBOUND")
+        
+        with tab5:
             st.markdown("#### Analisi Scenari Interattiva")
             
             # Definisci baseline_total per entrambi gli scenari
@@ -1290,7 +1487,7 @@ if run_calculation:
                 st.warning(f"⚠️ **Fattori di stress applicati:** Picco volume +{st.session_state.stress_params['picco_volume']}%, Assenteismo +{st.session_state.stress_params['assenteismo_extra']}%")
                 
                 # Grafici comparativi migliorati
-                st.markdown("**🔥 Confronto Resilienza: Normale vs Stress Test**")
+                st.markdown("**🔥 Confronto Resilienza: Normale vs Stress**")
                 
                 # Prepara dati per il confronto stress
                 baseline_daily_stress = results_df[results_df['Status'] == 'Aperto'].groupby('Giorno')['Operatori necessari'].sum().reset_index()

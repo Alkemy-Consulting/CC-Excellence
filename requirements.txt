@@ -9,3 +9,7 @@ prophet==1.1.7
 cython==0.29.36
 openpyxl>=3.0.0
 ortools
+scipy>=1.9.0
+queueing-tool>=1.2.6
+simpy>=4.0.1
+erlang>=0.3.0
