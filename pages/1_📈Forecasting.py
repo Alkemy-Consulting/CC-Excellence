@@ -2,405 +2,370 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px
 from datetime import datetime, timedelta
+import io
+import warnings
 
-from modules.prophet_module import run_prophet_model
-from modules.arima_module import run_arima_model
-from modules.holtwinters_module import run_holt_winters_model
-from modules.sarima_module import run_sarima_model
-from modules.exploratory_module import run_exploratory_analysis
+from modules.forecast_engine import (
+    run_enhanced_forecast, 
+    run_auto_select_forecast, 
+    display_forecast_results
+)
+from modules.config import *
+from modules.data_utils import *
+from modules.ui_components import *
+
+# Page configuration
+st.set_page_config(
+    page_title="📈 Contact Center Forecasting Tool",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 st.title("📈 Contact Center Forecasting Tool")
+st.markdown("---")
 
-# --- Funzioni di Supporto ---
+# Initialize session state
+if 'data_loaded' not in st.session_state:
+    st.session_state.data_loaded = False
+if 'cleaned_data' not in st.session_state:
+    st.session_state.cleaned_data = None
+if 'model_configs' not in st.session_state:
+    st.session_state.model_configs = {}
 
-def generate_sample_data():
-    """Genera un DataFrame di esempio con trend, stagionalità e rumore."""
-    today = datetime.today()
-    dates = pd.date_range(start=today - timedelta(days=730), end=today, freq='D')
-    trend = np.linspace(50, 150, len(dates))
-    seasonality = 25 * (1 + np.sin(np.arange(len(dates)) * 2 * np.pi / 365.25)) + \
-                  15 * (1 + np.sin(np.arange(len(dates)) * 2 * np.pi / 7))
-    noise = np.random.normal(0, 15, len(dates))
-    volume = trend + seasonality + noise
-    volume = np.maximum(0, volume)  # Assicura che non ci siano valori negativi
-    return pd.DataFrame({'date': dates, 'volume': volume})
-
-def clean_data(df, cleaning_preferences, target_col):
-    if cleaning_preferences['remove_zeros']:
-        df = df[df[target_col] != 0]
-    if cleaning_preferences['replace_outliers']:
-        q1 = df[target_col].quantile(0.25)
-        q3 = df[target_col].quantile(0.75)
-        iqr = q3 - q1
-        lower_bound = q1 - 1.5 * iqr
-        upper_bound = q3 + 1.5 * iqr
-        df.loc[(df[target_col] < lower_bound) | (df[target_col] > upper_bound), target_col] = df[target_col].median()
-    if cleaning_preferences['remove_negatives']:
-        df[target_col] = df[target_col].clip(lower=0)
-    
-    # Gestione dei valori mancanti
-    if 'nan_handling' in cleaning_preferences:
-        if cleaning_preferences['nan_handling'] == "Riempi con zero":
-            df[target_col] = df[target_col].fillna(0)
-        elif cleaning_preferences['nan_handling'] == "Forward fill":
-            df[target_col] = df[target_col].ffill()
-        elif cleaning_preferences['nan_handling'] == "Backward fill":
-            df[target_col] = df[target_col].bfill()
-
-    return df
-
-def check_data_quality(df, date_col, target_col):
-    """Controlla la qualità del DataFrame e mostra warning."""
-    # Warning per valori negativi
-    if (df[target_col] < 0).any():
-        st.warning(f"⚠️ La colonna target '{target_col}' contiene valori negativi. Verranno trasformati in zero se l'opzione 'Trasforma valori negativi in zero' è attiva.")
-
-    # Warning per NaN dopo aggregazione
-    nan_percentage = df[target_col].isna().sum() / len(df)
-    if nan_percentage > 0.2:
-        st.warning(f"⚠️ Attenzione: oltre il {nan_percentage:.0%} dei valori nella colonna '{target_col}' sono mancanti (NaN) dopo l'aggregazione. Considera di usare un metodo di riempimento o di rivedere la granularità.")
-
-def check_data_size(df):
-    if len(df) < 20: # Aumentato il limite per modelli più robusti
-        st.error("Il dataset ha meno di 20 punti dati dopo la pulizia. Aggiungi più dati o modifica le regole di pulizia/filtro.")
-        st.stop()
-
-def aggregate_data(df, date_col, target_col, freq, aggregation_method):
-    # Assicurati che la colonna data sia in formato datetime
-    if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
-        df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
-    
-    # Feedback su NaT e rimozione
-    nat_rows = df[df[date_col].isna()]
-    if not nat_rows.empty:
-        st.warning(f"⚠️ Trovate {len(nat_rows)} righe con date non valide (NaT) che verranno escluse.")
-        df = df.dropna(subset=[date_col])
-    
-    # Verifica che ci siano ancora dati validi
-    if df.empty:
-        st.error("❌ Nessun dato valido rimasto dopo la rimozione delle date non valide.")
-        st.stop()
-
-    try:
-        df = df.set_index(date_col).resample(freq).agg({target_col: aggregation_method}).reset_index()
-        return df
-    except Exception as e:
-        st.error(f"❌ Errore durante l'aggregazione dei dati: {str(e)}")
-        st.stop()
-
-# --- Sidebar ---
+# Main workflow in sidebar
 with st.sidebar:
-    st.header("1. Dataset")
-
-    use_sample_data = st.checkbox("Usa dataset di esempio", value=True, help="Deseleziona per caricare il tuo file CSV.")
-
-    file = None
-    if not use_sample_data:
-        with st.expander("📂 File import"):
-            delimiter = st.selectbox("Delimitatore CSV", [",", ";", "|", "\t"], index=0, help="Il carattere che separa le colonne nel tuo file.")
-            user_friendly_format = st.selectbox("Formato data", [
-                "aaaa-mm-gg", "gg/mm/aaaa", "gg/mm/aa",
-                "mm/gg/aaaa", "gg.mm.aaaa", "aaaa/mm/gg"
-            ], index=0, help="Seleziona il formato delle date nel tuo file per una corretta interpretazione.")
-            format_map = {
-                "gg/mm/aaaa": "%d/%m/%Y",
-                "gg/mm/aa": "%d/%m/%y",
-                "aaaa-mm-gg": "%Y-%m-%d",
-                "mm/gg/aaaa": "%m/%d/%Y",
-                "gg.mm.aaaa": "%d.%m.%Y",
-                "aaaa/mm/gg": "%Y/%m/%d"
-            }
-            date_format = format_map[user_friendly_format]
-            file = st.file_uploader("Carica un file CSV", type=["csv"])
-    else:
-        st.info("ℹ️ Verrà utilizzato un dataset di esempio generato automaticamente.")
-
-    df, date_col, target_col, freq, aggregation_method = None, None, None, "D", "sum"
-    clip_negatives = replace_outliers = clean_zeros = False
-    test_start, test_end = None, None
-
-    # Caricamento e configurazione iniziale del DataFrame
-    if use_sample_data:
-        df = generate_sample_data()
-        date_col = 'date'
-        target_col = 'volume'
-    elif file:
-        df = pd.read_csv(file, delimiter=delimiter)
-        columns = df.columns.tolist()
-
-        with st.expander("📊 Colonne"):
-            date_col = st.selectbox("Colonna data", options=columns, help="La colonna che contiene le date.")
-            target_col = st.selectbox("Colonna target", options=columns, index=1 if len(columns) > 1 else 0, help="La colonna con i valori numerici da prevedere.")
-
-    if df is not None and not df.empty:
-        # --- Filtro Intervallo Temporale ---
-        with st.expander("🗓️ Filtro Intervallo Temporale", expanded=True):
-            # Converti una sola volta le date
-            if not use_sample_data:
-                df[date_col] = pd.to_datetime(df[date_col], format=date_format, errors='coerce')
-            else:
-                df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+    st.markdown("## 🔧 Configuration Workflow")
+    
+    # Step 1: Data Upload
+    df, date_col, target_col, upload_config = render_data_upload_section()
+    
+    if df is not None and date_col and target_col:
+        st.session_state.data_loaded = True
+        
+        # Step 2: Data Preview
+        st.markdown("---")
+        df_with_stats = render_data_preview_section(df, date_col, target_col, upload_config)
+        
+        # Step 3: Data Cleaning
+        st.markdown("---")
+        df_clean, cleaning_config = render_data_cleaning_section(df_with_stats, date_col, target_col)
+        st.session_state.cleaned_data = df_clean
+        
+        # Step 4: External Regressors
+        st.markdown("---")
+        regressor_config = render_external_regressors_section(df_clean, date_col, target_col)
+        
+        # Step 5: Model Selection
+        st.markdown("---")
+        selected_model, model_configs = render_model_selection_section()
+        st.session_state.model_configs = model_configs
+        
+        # Step 6: Forecast Configuration
+        st.markdown("---")
+        forecast_config = render_forecast_config_section()
+        
+        # Step 7: Output Configuration
+        st.markdown("---")
+        output_config = render_output_config_section()
+        
+        # Run Forecast Button
+        st.markdown("---")
+        if st.button("🚀 Run Forecast", type="primary", use_container_width=True):
+            st.session_state.run_forecast = True
+        
+        # Quick Stats Summary
+        if st.session_state.cleaned_data is not None:
+            st.markdown("---")
+            st.subheader("📊 Data Summary")
+            final_stats = get_data_statistics(st.session_state.cleaned_data, date_col, target_col)
             
-            # Rimuovi NaT prima di calcolare min/max
-            df = df.dropna(subset=[date_col]) 
+            st.metric("📈 Records", final_stats['total_records'])
+            st.metric("📅 Date Range", f"{final_stats['date_range_days']} days")
+            if final_stats['missing_values'] > 0:
+                st.metric("❌ Missing", f"{final_stats['missing_values']}")
+
+# Main content area
+if not st.session_state.data_loaded:
+    # Welcome screen
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("""
+        ## 🎯 Welcome to Contact Center Forecasting!
+        
+        This advanced forecasting tool helps you predict future call volumes, 
+        staffing needs, and capacity requirements using state-of-the-art 
+        time series models.
+        
+        ### 🚀 Features:
+        - **📊 Multiple Models**: Prophet, ARIMA, SARIMA, Holt-Winters
+        - **🔧 Auto-tuning**: Automatic parameter optimization
+        - **📈 Advanced Analytics**: Seasonality, holidays, external regressors
+        - **📋 Export Options**: CSV, Excel, PDF reports
+        - **🎨 Rich Visualizations**: Interactive plots and diagnostics
+        
+        ### 🏁 Getting Started:
+        1. **Upload your data** or use the sample dataset
+        2. **Configure preprocessing** options
+        3. **Select and tune** your forecasting model
+        4. **Generate forecasts** and analyze results
+        
+        👈 **Start by configuring your data in the sidebar**
+        """)
+        
+        # Quick start with sample data
+        if st.button("🎯 Quick Start with Sample Data", type="primary"):
+            st.rerun()
+
+elif st.session_state.data_loaded and 'run_forecast' not in st.session_state:
+    # Data loaded but forecast not run yet
+    st.markdown("## 📊 Data Analysis & Preparation")
+    
+    if st.session_state.cleaned_data is not None:
+        df_clean = st.session_state.cleaned_data
+        
+        # Enhanced data visualization
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            # Time series plot with statistical overlays
+            st.subheader("📈 Time Series Overview")
             
-            min_date = df[date_col].min().date()
-            max_date = df[date_col].max().date()
-
-            start_date = st.date_input("Data di inizio", value=min_date, min_value=min_date, max_value=max_date, help="Filtra i dati per iniziare da questa data.")
-            end_date = st.date_input("Data di fine", value=max_date, min_value=start_date, max_value=max_date, help="Filtra i dati per finire a questa data.")
+            # Create enhanced plot
+            fig = go.Figure()
             
-            df = df[(df[date_col] >= pd.to_datetime(start_date)) & (df[date_col] <= pd.to_datetime(end_date))]
-
-        with st.expander("⏱️ Granularità"):
-            try:
-                df_sorted = df.sort_values(by=date_col)
-                inferred = pd.infer_freq(df_sorted[date_col])
-                detected_freq = inferred if inferred else "D"
-            except Exception:
-                detected_freq = "D"
-            st.text(f"Granularità rilevata: {detected_freq}")
-            freq_map = {
-                "Daily": "D", "Weekly": "W", "Monthly": "M",
-                "Quarterly": "Q", "Yearly": "Y"
-            }
-            user_friendly_freq = {v: k for k, v in freq_map.items()}.get(detected_freq, "Daily")
-            selected_granularity = st.selectbox("Seleziona una nuova granularità", list(freq_map.keys()), index=list(freq_map.keys()).index(user_friendly_freq) if user_friendly_freq in freq_map.keys() else 0, help="Aggrega i dati a un livello temporale diverso (es. da giornaliero a settimanale).")
-            freq = freq_map[selected_granularity]
-            aggregation_method = st.selectbox("Metodo di aggregazione", ["sum", "mean", "max", "min"], help="La funzione da usare per aggregare i dati (es. somma dei volumi giornalieri per ottenere il totale settimanale).")
-
-        with st.expander("🧹 Data Cleaning"):
-            clean_zeros = st.checkbox("Rimuovi righe con zero nel target", value=True, help="Esclude i giorni/periodi con zero attività. Utile se gli zeri indicano assenza di servizio.")
-            replace_outliers = st.checkbox("Sostituisci outlier (z-score > 3) con mediana", value=True, help="Smussa i picchi anomali che potrebbero distorcere il modello, sostituendoli con un valore più tipico.")
-            clip_negatives = st.checkbox("Trasforma valori negativi in zero", value=True, help="Forza i valori negativi (impossibili per i volumi) a zero.")
-            nan_handling_method = st.selectbox(
-                "Gestisci valori mancanti (post-aggregazione)",
-                ["Riempi con zero", "Forward fill", "Backward fill"],
-                index=0,
-                help="Scegli come trattare le date senza dati. 'Riempi con zero' è conservativo, 'Forward fill' propaga l'ultimo valore noto."
+            # Historical data
+            fig.add_trace(go.Scatter(
+                x=df_clean[date_col],
+                y=df_clean[target_col],
+                mode='lines',
+                name='Historical Data',
+                line=dict(color=PLOT_CONFIG['colors']['historical'])
+            ))
+            
+            # Add trend line
+            if len(df_clean) > 1:
+                x_numeric = np.arange(len(df_clean))
+                z = np.polyfit(x_numeric, df_clean[target_col], 1)
+                p = np.poly1d(z)
+                
+                fig.add_trace(go.Scatter(
+                    x=df_clean[date_col],
+                    y=p(x_numeric),
+                    mode='lines',
+                    name='Trend Line',
+                    line=dict(color=PLOT_CONFIG['colors']['trend'], dash='dash')
+                ))
+            
+            # Add moving average
+            if len(df_clean) >= 7:
+                ma_7 = df_clean[target_col].rolling(window=7, center=True).mean()
+                fig.add_trace(go.Scatter(
+                    x=df_clean[date_col],
+                    y=ma_7,
+                    mode='lines',
+                    name='7-day Moving Average',
+                    line=dict(color='orange', width=2),
+                    opacity=0.7
+                ))
+            
+            fig.update_layout(
+                title="Historical Time Series with Trend Analysis",
+                xaxis_title="Date",
+                yaxis_title=target_col,
+                height=PLOT_CONFIG['height'],
+                hovermode='x unified'
             )
-
-        st.header("2. Modello")
-        model_tab = st.selectbox("Seleziona il modello", ["Prophet", "ARIMA", "SARIMA", "Holt-Winters", "Exploratory"], help="Scegli l'algoritmo di forecasting da utilizzare. 'Exploratory' li confronta tutti.")
-
-        # --- Parametri Comuni per Exploratory ---
-        if model_tab == "Exploratory":
-            st.info("Exploratory confronterà tutti i modelli. I parametri qui sotto servono a configurare ciascun modello per il confronto.")
-
-        # --- Parametri Prophet (usati anche da Exploratory) ---
-        prophet_params = {}
-        if model_tab in ["Prophet", "Exploratory"]:
-            with st.expander("⚙️ Parametri Prophet"):
-                prophet_params['seasonality_mode'] = st.selectbox(
-                    "Modalità stagionalità", ['additive', 'multiplicative'], index=0,
-                    help="Additiva: la stagionalità ha un'ampiezza costante. Moltiplicativa: l'ampiezza cresce con il trend."
-                )
-                prophet_params['changepoint_prior_scale'] = st.slider(
-                    "Flessibilità del trend", 0.001, 0.5, 0.05, 0.001, format="%.3f",
-                    help="Aumenta per rendere il trend più flessibile e adattarsi ai cambiamenti, diminuisci per renderlo più stabile."
-                )
-                prophet_params['holidays_country'] = st.selectbox(
-                    "Includi festività nazionali", [None, 'IT', 'US', 'UK', 'DE', 'FR', 'ES'],
-                    help="Aggiunge al modello il calendario delle festività del paese selezionato per catturarne l'effetto."
-                )
-
-        # --- Parametri Holt-Winters (usati anche da Exploratory) ---
-        holt_winters_params = {}
-        if model_tab in ["Holt-Winters", "Exploratory"]:
-            with st.expander("⚙️ Parametri Holt-Winters"):
-                holt_winters_params['trend_type'] = st.selectbox("Tipo di Trend", ['add', 'mul'], index=0, key="hw_trend", help="'add' per trend lineare, 'mul' per trend esponenziale.")
-                holt_winters_params['seasonal_type'] = st.selectbox("Tipo di Stagionalità", ['add', 'mul'], index=0, key="hw_seasonal", help="'add' per stagionalità costante, 'mul' per stagionalità che cresce con il trend.")
-                holt_winters_params['damped_trend'] = st.checkbox("Smorza Trend (Damped)", value=True, key="hw_damped", help="Se attivo, smorza il trend nel lungo periodo, rendendo il forecast più conservativo.")
-                holt_winters_params['seasonal_periods'] = st.number_input("Periodi stagionali", min_value=2, max_value=365, value=12, key="hw_seasonal_periods", help="Il numero di periodi in un ciclo stagionale (es. 7 per dati giornalieri con stagionalità settimanale, 12 per mensili).")
-                
-                use_custom = st.checkbox("Utilizza parametri di smoothing custom", value=False, key="hw_custom", help="Attiva per impostare manualmente i pesi per livello, trend e stagionalità.")
-                holt_winters_params['use_custom'] = use_custom
-                
-                if use_custom:
-                    holt_winters_params['smoothing_level'] = st.slider("Alpha (livello)", 0.0, 1.0, 0.2, 0.01, key="hw_alpha", help="Peso dato alle osservazioni recenti per il calcolo del livello.")
-                    holt_winters_params['smoothing_trend'] = st.slider("Beta (trend)", 0.0, 1.0, 0.1, 0.01, key="hw_beta", help="Peso dato alle osservazioni recenti per il calcolo del trend.")
-                    holt_winters_params['smoothing_seasonal'] = st.slider("Gamma (stagionalità)", 0.0, 1.0, 0.1, 0.01, key="hw_gamma", help="Peso dato alle osservazioni recenti per il calcolo della stagionalità.")
-
-        # --- Parametri ARIMA (usati anche da Exploratory) ---
-        arima_params = {}
-        if model_tab in ["ARIMA", "Exploratory"]:
-            with st.expander("⚙️ Parametri ARIMA"):
-                arima_params['p'] = st.number_input("Ordine AR (p)", 0, 10, 1, key="arima_p", help="Componente Autoregressiva: numero di osservazioni passate da includere nel modello.")
-                arima_params['d'] = st.number_input("Ordine Differenziazione (d)", 0, 5, 1, key="arima_d", help="Numero di volte che i dati vengono differenziati per renderli stazionari.")
-                arima_params['q'] = st.number_input("Ordine MA (q)", 0, 10, 0, key="arima_q", help="Media Mobile: numero di errori di previsione passati da includere nel modello.")
-
-        # --- Parametri SARIMA (usati anche da Exploratory) ---
-        sarima_params = {}
-        if model_tab in ["SARIMA", "Exploratory"]:
-            with st.expander("⚙️ Parametri SARIMA"):
-                st.write("Componente non stagionale (ARIMA)")
-                sarima_params['p'] = st.number_input("Ordine AR (p)", 0, 10, 1, key="sarima_p", help="Parte AR non stagionale.")
-                sarima_params['d'] = st.number_input("Ordine Diff. (d)", 0, 5, 1, key="sarima_d", help="Parte di differenziazione non stagionale.")
-                sarima_params['q'] = st.number_input("Ordine MA (q)", 0, 10, 0, key="sarima_q", help="Parte MA non stagionale.")
-                st.write("Componente stagionale")
-                sarima_params['P'] = st.number_input("Ordine AR Stag. (P)", 0, 10, 1, key="sarima_P", help="Parte AR stagionale.")
-                sarima_params['D'] = st.number_input("Ordine Diff. Stag. (D)", 0, 5, 1, key="sarima_D", help="Parte di differenziazione stagionale.")
-                sarima_params['Q'] = st.number_input("Ordine MA Stag. (Q)", 0, 10, 0, key="sarima_Q", help="Parte MA stagionale.")
-                sarima_params['s'] = st.number_input("Periodo Stag. (s)", 1, 365, 12, key="sarima_s", help="Durata del ciclo stagionale (es. 12 per dati mensili).")
-
-        st.header("3. Backtesting")
-        with st.expander("📊 Split", expanded=True):
-            use_cv = st.checkbox("Usa Cross-Validation", help="Valida il modello su più 'fold' (segmenti) di dati per una stima più robusta delle performance.")
-            if use_cv:
-                end_date_default = df[date_col].max()
-                start_date_default = max(df[date_col].min(), end_date_default - pd.DateOffset(years=1))
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    cv_start_date = st.date_input("Data inizio CV", value=start_date_default, help="La data da cui iniziare a creare i fold di validazione.")
-                with col2:
-                    cv_end_date = st.date_input("Data fine CV", value=end_date_default, help="La data finale per i fold di validazione.")
-                n_folds = st.number_input("Numero di folds", 2, 20, 5, help="In quanti segmenti dividere i dati per la validazione incrociata.")
-                fold_horizon = st.number_input("Orizzonte per fold (in periodi)", min_value=1, value=30, help="Quanti periodi futuri prevedere per ogni fold.")
+            
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            # Data quality indicators
+            st.subheader("📋 Data Quality Report")
+            
+            stats = get_data_statistics(df_clean, date_col, target_col)
+            
+            # Quality indicators
+            quality_score = 100
+            issues = []
+            
+            if stats['missing_percentage'] > 5:
+                quality_score -= 20
+                issues.append(f"High missing values ({stats['missing_percentage']:.1f}%)")
+            
+            if stats.get('duplicate_dates', 0) > 0:
+                quality_score -= 15
+                issues.append(f"Duplicate dates ({stats['duplicate_dates']})")
+            
+            # Calculate variance
+            if stats['std_value'] == 0:
+                quality_score -= 30
+                issues.append("Zero variance in target")
+            
+            # Display quality score
+            if quality_score >= 80:
+                st.success(f"✅ Data Quality: {quality_score}/100")
+            elif quality_score >= 60:
+                st.warning(f"⚠️ Data Quality: {quality_score}/100")
             else:
-                cv_start_date = cv_end_date = None
-                n_folds = 5
-                fold_horizon = 30
-                
-                split_point = st.slider(
-                    "Punto di divisione Train/Test", 
-                    min_value=0.1, max_value=0.9, value=0.8, step=0.05, format="%.2f",
-                    help="Scegli la percentuale di dati da usare per l'addestramento (train). Il resto sarà usato per la validazione (test)."
-                )
-                
-                if df is not None and not df.empty:
-                    train_size = int(len(df) * split_point)
-                    test_size = len(df) - train_size
-                    test_start = df[date_col].iloc[train_size]
-                    test_end = df[date_col].iloc[-1]
-                    
-                    st.info(
-                        f"**Train set**: {train_size} righe ({split_point:.0%}) - da {df[date_col].min().date()} a {df[date_col].iloc[train_size-1].date()}\n\n"
-                        f"**Test set**: {test_size} righe ({1-split_point:.0%}) - da {test_start.date()} a {test_end.date()}"
-                    )
-
-        with st.expander("📏 Metriche"):
-            selected_metrics = st.multiselect(
-                "Seleziona le metriche di valutazione",
-                options=["MAPE", "MAE", "MSE", "RMSE", "SMAPE"],
-                default=["MAPE", "MAE", "RMSE"],
-                help="Scegli gli indicatori per misurare l'accuratezza del modello. MAE e RMSE sono in valore assoluto, MAPE in percentuale."
+                st.error(f"❌ Data Quality: {quality_score}/100")
+            
+            # List issues
+            if issues:
+                st.markdown("**Issues detected:**")
+                for issue in issues:
+                    st.markdown(f"• {issue}")
+            else:
+                st.success("🎉 No data quality issues detected!")
+            
+            # Distribution analysis
+            st.subheader("📊 Value Distribution")
+            
+            # Histogram
+            fig_hist = px.histogram(
+                df_clean, 
+                x=target_col,
+                nbins=30,
+                title="Value Distribution"
             )
-
-        st.header("4. Forecast")
-        with st.expander("📅 Parametri Forecast"):
-            make_forecast = st.checkbox("Esegui forecast su date future", value=True, help="Se attivo, il modello genererà previsioni per il futuro, oltre a validare sul passato.")
-            horizon = 30
-            if make_forecast:
-                horizon = st.number_input("Orizzonte (numero di periodi)", min_value=1, value=30, help="Per quanti periodi futuri (giorni, settimane, mesi) vuoi la previsione.")
-                if df is not None and not df.empty:
-                    start_date_fc = df[date_col].max() + pd.tseries.frequencies.to_offset(freq)
-                    end_date_fc = start_date_fc + pd.tseries.frequencies.to_offset(freq) * (horizon - 1)
-                    st.success(f"Il forecast coprirà da **{start_date_fc.date()}** a **{end_date_fc.date()}**")
+            fig_hist.update_layout(height=300)
+            st.plotly_chart(fig_hist, use_container_width=True)
         
-        forecast_button = st.button("🚀 Avvia il forecast")
+        # Seasonality analysis
+        st.subheader("🔄 Seasonality Analysis")
+        
+        # Auto-detect seasonality patterns
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if len(df_clean) >= 30:
+                # Monthly seasonality
+                df_clean['month'] = pd.to_datetime(df_clean[date_col]).dt.month
+                monthly_avg = df_clean.groupby('month')[target_col].mean()
+                
+                fig_monthly = px.bar(
+                    x=monthly_avg.index,
+                    y=monthly_avg.values,
+                    title="Average by Month",
+                    labels={'x': 'Month', 'y': 'Average Value'}
+                )
+                fig_monthly.update_layout(height=250)
+                st.plotly_chart(fig_monthly, use_container_width=True)
+        
+        with col2:
+            if len(df_clean) >= 14:
+                # Weekly seasonality
+                df_clean['weekday'] = pd.to_datetime(df_clean[date_col]).dt.day_name()
+                weekday_avg = df_clean.groupby('weekday')[target_col].mean()
+                
+                # Reorder weekdays
+                weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                weekday_avg = weekday_avg.reindex([day for day in weekday_order if day in weekday_avg.index])
+                
+                fig_weekly = px.bar(
+                    x=weekday_avg.index,
+                    y=weekday_avg.values,
+                    title="Average by Weekday",
+                    labels={'x': 'Weekday', 'y': 'Average Value'}
+                )
+                fig_weekly.update_layout(height=250)
+                fig_weekly.update_xaxes(tickangle=45)
+                st.plotly_chart(fig_weekly, use_container_width=True)
+        
+        with col3:
+            if len(df_clean) >= 24:
+                # Daily seasonality (if timestamp data available)
+                try:
+                    df_clean['hour'] = pd.to_datetime(df_clean[date_col]).dt.hour
+                    if df_clean['hour'].nunique() > 1:
+                        hourly_avg = df_clean.groupby('hour')[target_col].mean()
+                        
+                        fig_hourly = px.line(
+                            x=hourly_avg.index,
+                            y=hourly_avg.values,
+                            title="Average by Hour",
+                            labels={'x': 'Hour', 'y': 'Average Value'}
+                        )
+                        fig_hourly.update_layout(height=250)
+                        st.plotly_chart(fig_hourly, use_container_width=True)
+                    else:
+                        st.info("📊 Hourly patterns not available (daily data)")
+                except:
+                    st.info("📊 Hourly patterns not available")
+        
+        # Clean up temporary columns
+        cols_to_drop = ['month', 'weekday', 'hour']
+        for col in cols_to_drop:
+            if col in df_clean.columns:
+                df_clean.drop(col, axis=1, inplace=True)
+        
+        # Ready to forecast message
+        st.markdown("---")
+        st.success("🎯 **Data is ready for forecasting!** Configure your model settings in the sidebar and click 'Run Forecast'")
 
-# --- Azione Principale ---
-if (file or use_sample_data) and forecast_button:
-    try:
-        # Aggregazione e pulizia
-        df_agg = aggregate_data(df, date_col, target_col, freq, aggregation_method)
-        cleaning_preferences = {
-            'remove_zeros': clean_zeros, 'remove_negatives': clip_negatives,
-            'replace_outliers': replace_outliers, 'nan_handling': nan_handling_method
+elif st.session_state.data_loaded and st.session_state.get('run_forecast', False):
+    # Run the forecast
+    st.markdown("## 🔮 Forecasting Results")
+    
+    # Get all necessary variables from session state and sidebar
+    df_clean = st.session_state.cleaned_data
+    
+    if df_clean is not None and len(df_clean) > 0:
+        # Prepare forecast configuration
+        base_config = {
+            'forecast_periods': forecast_config.get('forecast_periods', 30),
+            'confidence_interval': forecast_config.get('confidence_interval', 0.95),
+            'train_size': 0.8
         }
-        df_clean = clean_data(df_agg, cleaning_preferences, target_col)
-
-        # Centralizzazione della gestione della frequenza per coerenza tra i moduli
-        df_clean[date_col] = pd.to_datetime(df_clean[date_col])
-        df_clean = df_clean.set_index(date_col)
-        df_clean = df_clean.asfreq(freq).ffill()
-        df_clean = df_clean.reset_index()
         
-        # Feedback post-pulizia
-        st.markdown("### 📦 Anteprima Dati Post-Cleaning")
-        st.dataframe(df_clean.head())
-        check_data_quality(df_clean, date_col, target_col)
-        check_data_size(df_clean)
-
-        # Validazione aggiuntiva per modelli
-        if len(df_clean) < 10:
-            st.error("⚠️ Dataset troppo piccolo per un forecast affidabile. Servono almeno 10 punti dati.")
-            st.stop()
+        st.markdown("### 🚀 Running Forecast...")
         
-        if df_clean[target_col].var() == 0:
-            st.warning("⚠️ La serie temporale ha varianza zero. Il forecast potrebbe non essere significativo.")
-
-        # Plot della serie storica con trendline e filtri
-        st.markdown("### 📈 Serie Storica e Trendline")
-        
-        df_plot = df_clean.sort_values(date_col).reset_index(drop=True)
-
-        x = np.arange(len(df_plot))
-        m, b = np.polyfit(x, df_plot[target_col], 1)
-        df_plot['trend'] = m * x + b
-
-        fig = go.Figure([
-            go.Scatter(x=df_plot[date_col], y=df_plot[target_col], name='Storico', mode='lines', line=dict(shape='spline', color='#1f77b4')),
-            go.Scatter(x=df_plot[date_col], y=df_plot['trend'], name='Trendline', mode='lines', line=dict(shape='spline', dash='dash', color='#ff7f0e'))
-        ])
-        fig.update_layout(title="Andamento Storico e Trend Lineare", xaxis_title="Data", yaxis_title=target_col)
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Definizione dei parametri base comuni a tutti i modelli
-        base_args = {
-            "df": df_clean,
-            "date_col": date_col,
-            "target_col": target_col,
-            "horizon": horizon,
-            "selected_metrics": selected_metrics
-        }
-
-        # Parametri aggiuntivi per Prophet (unico modello che supporta CV e backtesting avanzato)
-        prophet_args = {
-            **base_args,
-            "freq": freq,
-            "make_forecast": make_forecast,
-            "use_cv": use_cv,
-            "cv_start_date": cv_start_date,
-            "cv_end_date": cv_end_date,
-            "n_folds": n_folds,
-            "fold_horizon": fold_horizon,
-            "test_start_date": test_start,
-            "test_end_date": test_end
-        }
-
-        # Esecuzione del modello selezionato con gestione errori
         try:
-            if model_tab == "Prophet":
-                run_prophet_model(**prophet_args, params=prophet_params)
+            with st.spinner(f"🔄 Running {selected_model} forecast..."):
+                if selected_model == "Auto-Select":
+                    # Run auto-select with model comparison
+                    best_model, forecast_df, metrics, plots = run_auto_select_forecast(
+                        df_clean, date_col, target_col, st.session_state.model_configs, base_config
+                    )
+                    
+                    if best_model != "None":
+                        display_forecast_results(best_model, forecast_df, metrics, plots)
+                    else:
+                        st.error("❌ Auto-select failed. No models succeeded.")
+                
+                else:
+                    # Run single model
+                    model_config = st.session_state.model_configs.get(selected_model, {})
+                    forecast_df, metrics, plots = run_enhanced_forecast(
+                        df_clean, date_col, target_col, selected_model, model_config, base_config
+                    )
+                    
+                    if not forecast_df.empty:
+                        display_forecast_results(selected_model, forecast_df, metrics, plots)
+                    else:
+                        st.error(f"❌ {selected_model} forecast failed. Please check your parameters.")
+                
+                st.success(f"✅ Forecast completed successfully!")
+                
+        except Exception as e:
+            st.error(f"❌ Error during forecast execution:")
+            st.exception(e)
+            st.info("💡 Try adjusting model parameters or data preprocessing options.")
+    
+    else:
+        st.error("❌ No cleaned data available. Please check data preprocessing steps.")
+    
+    # Reset forecast trigger
+    if st.button("🔄 Run Another Forecast"):
+        del st.session_state.run_forecast
+        st.rerun()
 
-            elif model_tab == "ARIMA":
-                run_arima_model(**base_args, params=arima_params)
-
-            elif model_tab == "SARIMA":
-                run_sarima_model(**base_args, params=sarima_params)
-
-            elif model_tab == "Holt-Winters":
-                run_holt_winters_model(**base_args, params=holt_winters_params)
-
-            elif model_tab == "Exploratory":
-                # Passa tutti i parametri necessari per l'analisi esplorativa
-                run_exploratory_analysis(
-                    **prophet_args,  # Usa prophet_args che contiene tutti i parametri
-                    prophet_params=prophet_params,
-                    holtwinters_params=holt_winters_params,
-                    arima_params=arima_params,
-                    sarima_params=sarima_params,
-                )
-        except Exception as model_error:
-            st.error(f"❌ Errore durante l'esecuzione del modello {model_tab}: {str(model_error)}")
-            st.info("💡 Suggerimenti: Controlla i parametri del modello o prova con un dataset diverso.")
-            
-    except Exception as e:
-        st.error(f"❌ Errore durante l'elaborazione dei dati: {str(e)}")
-        st.info("💡 Verifica il formato del file CSV e i parametri di configurazione.")
-        
-elif not use_sample_data and not file:
-    st.info("☝️ Per iniziare, carica un file CSV o seleziona il dataset di esempio dalla sidebar.")
+# Footer
+st.markdown("---")
+st.markdown("""
+<div style='text-align: center; color: #666; padding: 20px;'>
+    📈 <strong>CC-Excellence Forecasting Tool</strong> | Built with Streamlit & Advanced Time Series Models
+</div>
+""", unsafe_allow_html=True)

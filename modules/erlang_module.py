@@ -371,7 +371,7 @@ def calculate_erlang_c(arrival_rate, aht, service_level_target, answer_time_targ
         ore_settimanali_fte: Ore settimanali per FTE per conversione
         
     Returns:
-        tuple: (agenti_necessari_con_shrinkage, service_level, occupazione)
+        tuple: (agenti_necessari_con_shrinkage, service_level, occupazione, agenti_base, agenti_totali_con_shrinkage)
     """
     # Calcolo base con Erlang C
     agents_base, sl, occ, asa = erlang_calculator.erlang_c_agents(
@@ -379,9 +379,9 @@ def calculate_erlang_c(arrival_rate, aht, service_level_target, answer_time_targ
     )
     
     # Applica shrinkage per ottenere agenti totali necessari
-    agents_with_shrinkage = agents_base / (1 - shrinkage) if shrinkage < 1.0 else agents_base * 2
+    agents_with_shrinkage = int(np.ceil(agents_base / (1 - shrinkage))) if shrinkage < 1.0 else agents_base * 2
     
-    return int(np.ceil(agents_with_shrinkage)), sl, occ
+    return agents_with_shrinkage, sl, occ, agents_base, agents_with_shrinkage
 
 
 def calculate_erlang_a(arrival_rate, aht, patience, service_level_target, answer_time_target, 
@@ -532,83 +532,78 @@ class ErlangCConservative:
                 'error': str(e)
             }
     
-    def generate_conservative_sensitivity_table(self, arrival_rate, aht, service_level_target,
-                                              answer_time_target, shrinkage=0.25, 
-                                              max_occupancy=0.85, agent_range=None):
+    def generate_conservative_sensitivity_table(self, arrival_rate, aht, service_level_target, answer_time_target,
+                                            max_occupancy=0.85, shrinkage=0.25):
         """
-        Genera tabella sensitivity analysis con approccio conservativo
+        Genera una tabella di sensitività per il modello Erlang C - Conservativo.
+        
+        Args:
+            arrival_rate: Chiamate per ora
+            aht: Average Handle Time in secondi
+            service_level_target: Target Service Level (0-1)
+            answer_time_target: Tempo target risposta in secondi
+            max_occupancy: Massima occupazione accettabile (0-1)
+            shrinkage: Shrinkage operatori (0-1)
         
         Returns:
-            pandas.DataFrame: Tabella sensitivity analysis conservativa
+            pd.DataFrame: Tabella di sensitività con agenti, SL, occupazione, ecc.
         """
         if not self.library_available:
+            # Fallback al sensitivity analysis standard
             return erlang_calculator.sensitivity_analysis(
                 arrival_rate, aht, service_level_target, answer_time_target,
-                None, max_occupancy, agent_range
+                None, max_occupancy
             )
         
         try:
+            # Calcolo intensità di traffico (Erlang)
             erlangs = (arrival_rate * aht) / 3600
-            
-            if agent_range is None:
-                min_agents = max(1, int(np.ceil(erlangs)))
-                agent_range = range(min_agents, min_agents + 20)
-            
+
+            # Inizializza il modello Erlang C
+            ec = self.ErlangC(
+                traffic=erlangs,
+                aht=aht,
+                service_level_goal=service_level_target,
+                service_level_time=answer_time_target,
+                max_occupancy=max_occupancy,
+                shrinkage=shrinkage
+            )
+
+            # Genera la tabella di sensitività
             results = []
+            min_agents = max(1, int(np.ceil(erlangs)))
+            agent_range = range(min_agents, min_agents + 20)
             
-            for num_agents in agent_range:
+            for agents in agent_range:
                 try:
-                    ec = self.ErlangC(
-                        traffic=erlangs,
-                        aht=aht,
-                        service_level_goal=service_level_target,
-                        service_level_time=answer_time_target,
-                        shrinkage=shrinkage,
-                        max_occupancy=max_occupancy
-                    )
-                    
-                    metrics = ec.metrics(num_agents)
-                    
-                    # Calcola metriche aggiuntive
-                    occupancy = metrics.get("occupancy", 0.0)
-                    service_level = metrics.get("service_level", 0.0)
-                    asa = metrics.get("asa", 0.0)
-                    prob_wait = metrics.get("probability_wait", 0.0)
-                    
-                    immediate_answer = (1 - prob_wait) * 100 if prob_wait else 100.0
-                    target_met = (service_level >= service_level_target) and (occupancy <= max_occupancy)
-                    
+                    metrics = ec.metrics(agents)
                     results.append({
-                        'Number of Agents': num_agents,
-                        'Occupancy %': occupancy * 100,
-                        'Service Level %': service_level * 100,
-                        'ASA (seconds)': min(999.9, asa),
-                        '% Answered Immediately': immediate_answer,
-                        '% Abandoned': 0.0,  # Erlang C non considera abbandoni
-                        'Target Met': target_met,
-                        'Model': 'Conservative'
+                        "Number of Agents": agents,
+                        "Service Level %": metrics.get("service_level", 0.0) * 100,
+                        "Occupancy %": metrics.get("occupancy", 0.0) * 100,
+                        "ASA (seconds)": metrics.get("asa", 0.0),
+                        "Target Met": metrics.get("service_level", 0.0) >= service_level_target,
+                        "Model": "Conservative"
                     })
-                    
-                except Exception as e:
+                except Exception:
                     # Fallback per singoli agenti
                     results.append({
-                        'Number of Agents': num_agents,
-                        'Occupancy %': min(100.0, (erlangs / num_agents) * 100) if num_agents > 0 else 100.0,
-                        'Service Level %': 50.0,
-                        'ASA (seconds)': 60.0,
-                        '% Answered Immediately': 50.0,
-                        '% Abandoned': 0.0,
-                        'Target Met': False,
-                        'Model': 'Conservative (fallback)'
+                        "Number of Agents": agents,
+                        "Service Level %": 50.0,
+                        "Occupancy %": min(100.0, (erlangs / agents) * 100) if agents > 0 else 100.0,
+                        "ASA (seconds)": 60.0,
+                        "Target Met": False,
+                        "Model": "Conservative (fallback)"
                     })
-            
+
             return pd.DataFrame(results)
             
         except Exception as e:
-            # Fallback completo
+            warnings.warn(f"Errore nel sensitivity analysis conservativo: {e}")
+            # Fallback completo al sensitivity analysis standard
             return erlang_calculator.sensitivity_analysis(
                 arrival_rate, aht, service_level_target, answer_time_target,
-                None, max_occupancy, agent_range
+                None, max_occupancy
             )
 
 
@@ -648,14 +643,36 @@ def calculate_erlang_c_conservative(arrival_rate, aht, service_level_target, ans
 
 
 def generate_conservative_sensitivity_table(arrival_rate, aht, service_level_target, answer_time_target,
-                                          shrinkage=0.25, max_occupancy=0.85, agent_range=None):
+                                          max_occupancy=0.85, shrinkage=0.25):
     """
     Funzione wrapper per sensitivity analysis conservativa
+    
+    Args:
+        arrival_rate: Chiamate per ora
+        aht: Average Handle Time in secondi
+        service_level_target: Target Service Level (0-1)
+        answer_time_target: Tempo target risposta in secondi
+        max_occupancy: Massima occupazione accettabile (0-1)
+        shrinkage: Shrinkage operatori (0-1)
     
     Returns:
         pandas.DataFrame: Tabella sensitivity analysis conservativa
     """
-    return erlang_conservative.generate_conservative_sensitivity_table(
-        arrival_rate, aht, service_level_target, answer_time_target,
-        shrinkage, max_occupancy, agent_range
-    )
+    if not erlang_conservative.library_available:
+        # Fallback al sensitivity analysis standard
+        return erlang_calculator.sensitivity_analysis(
+            arrival_rate, aht, service_level_target, answer_time_target,
+            None, max_occupancy
+        )
+    
+    try:
+        return erlang_conservative.generate_conservative_sensitivity_table(
+            arrival_rate, aht, service_level_target, answer_time_target,
+            max_occupancy, shrinkage
+        )
+    except Exception as e:
+        warnings.warn(f"Errore nel sensitivity analysis conservativo: {e}. Uso fallback standard.")
+        return erlang_calculator.sensitivity_analysis(
+            arrival_rate, aht, service_level_target, answer_time_target,
+            None, max_occupancy
+        )

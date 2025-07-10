@@ -681,6 +681,11 @@ if run_calculation:
         avg_service_level = results_df[results_df['Status'] == 'Aperto']['Service Level Stimato'].mean()
         avg_occupancy = results_df[results_df['Status'] == 'Aperto']['Occupazione Stimata'].mean()
         
+        # Calcola operatori base (senza shrinkage) stimati
+        shrinkage_used = st.session_state.model_params.get('shrinkage', 0.25)
+        total_base_agents_estimated = total_agents * (1 - shrinkage_used) if shrinkage_used < 1.0 else total_agents * 0.7
+        total_agents_with_shrinkage = total_agents  # Gli operatori necessari includono già lo shrinkage
+        
         # Box KPI
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -688,579 +693,578 @@ if run_calculation:
         with col2:
             st.metric("💰 Costo Totale Stimato", f"€{total_cost:,.2f}")
         with col3:
-            if selected_model in ["Erlang C", "Erlang C - Conservativo", "Erlang A", "Simulazione"]:
-                st.metric("📈 Service Level Medio", f"{avg_service_level:.1%}")
-            else:
-                st.metric("⚡ Efficienza", "Ottimale")
+            st.metric("📈 Service Level Medio", f"{avg_service_level:.1%}")
         with col4:
             st.metric("📊 Occupazione Media", f"{avg_occupancy:.1%}")
         
-        # Tabs per diverse visualizzazioni
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Dashboard", "🗓️ Pianificazione", "📋 Dettagli", "🔬 Sensitivity", "🔄 Scenari"])
+        # Metriche aggiuntive in una nuova riga
+        col1_extra, col2_extra = st.columns(2)
+        with col1_extra:
+            st.metric("👥 Operatori Base (stima)", f"{total_base_agents_estimated:,.0f}")
+        with col2_extra:
+            st.metric("👥 Operatori con Shrinkage", f"{total_agents_with_shrinkage:,.0f}")
+    
+    # KPI Aggiuntivi per scenari
+    if whatif_results is not None or stress_results is not None:
+        st.markdown("### 📈 KPI Aggiuntivi per Scenari")
         
-        with tab1:
-            st.markdown("#### Dashboard Operativa")
+        if whatif_results is not None:
+            whatif_total_agents = whatif_results[whatif_results['Status'] == 'Aperto']['Operatori necessari'].sum()
+            whatif_total_cost = whatif_results[whatif_results['Status'] == 'Aperto']['Costo Stimato (€)'].sum()
+            whatif_avg_service_level = whatif_results[whatif_results['Status'] == 'Aperto']['Service Level Stimato'].mean()
+            whatif_avg_occupancy = whatif_results[whatif_results['Status'] == 'Aperto']['Occupazione Stimata'].mean()
             
-            # Grafico andamento giornaliero
-            col1, col2 = st.columns(2)
-            
+            st.markdown("#### 📊 Risultati What-If")
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.markdown("**Fabbisogno Operatori per Giorno**")
-                daily_summary = results_df[results_df['Status'] == 'Aperto'].groupby('Giorno').agg({
-                    'Operatori necessari': 'sum',  # Ore totali erogate
-                    'Costo Stimato (€)': 'sum'
-                }).reset_index()
-                
-                # Calcola anche il picco simultaneo
-                daily_peak = results_df[results_df['Status'] == 'Aperto'].groupby('Giorno')['Operatori necessari'].max().reset_index()
-                daily_peak.columns = ['Giorno', 'Picco Operatori']
-                
-                # Merge dei dati
-                daily_summary = daily_summary.merge(daily_peak, on='Giorno')
-                
-                # Ordina i giorni
-                giorni_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-                daily_summary['Giorno'] = pd.Categorical(daily_summary['Giorno'], categories=giorni_order, ordered=True)
-                daily_summary = daily_summary.sort_values('Giorno')
-                
-                # Grafico con barre per ore totali e trendline per picchi simultanei
-                fig_daily = go.Figure()
-                
-                # Barre per ore totali erogate
-                fig_daily.add_trace(go.Bar(
-                    name='Ore Totali Erogate',
-                    x=daily_summary['Giorno'],
-                    y=daily_summary['Operatori necessari'],
-                    text=[f"{val:.0f}h" for val in daily_summary['Operatori necessari']],
-                    textposition='outside',
-                    marker_color='lightblue',
-                    opacity=0.7
-                ))
-                
-                # Trendline per picco operatori simultanei
-                fig_daily.add_trace(go.Scatter(
-                    name='Picco Operatori Simultanei',
-                    x=daily_summary['Giorno'],
-                    y=daily_summary['Picco Operatori'],
-                    mode='lines+markers+text',
-                    line=dict(color='red', width=3),
-                    marker=dict(size=10, color='red', symbol='circle'),
-                    text=[f"{val:.0f}" for val in daily_summary['Picco Operatori']],
-                    textposition='top center',
-                    textfont=dict(color='red', size=12, family='Arial Black'),
-                    yaxis='y2'
-                ))
-                
-                fig_daily.update_layout(
-                    title="Fabbisogno Operatori per Giorno",
-                    yaxis=dict(
-                        title="Ore Totali Erogate",
-                        side='left'
-                    ),
-                    yaxis2=dict(
-                        title="Picco Operatori Simultanei",
-                        overlaying='y',
-                        side='right',
-                        showgrid=False
-                    ),
-                    legend=dict(
-                        orientation="h", 
-                        yanchor="bottom", 
-                        y=1.02, 
-                        xanchor="center", 
-                        x=0.5
-                    ),
-                    hovermode='x unified',
-                    height=400
-                )
-                
-                st.plotly_chart(fig_daily, use_container_width=True)
-            
+                st.metric("👥 Totale Ore-Operatore", f"{whatif_total_agents:,.0f}")
             with col2:
-                st.markdown("**Distribuzione Oraria**")
-                hourly_summary = results_df[results_df['Status'] == 'Aperto'].groupby('Time slot')['Operatori necessari'].mean().reset_index()
-                
-                fig_hourly = px.line(
-                    hourly_summary,
-                    x='Time slot',
-                    y='Operatori necessari',
-                    title="Fabbisogno Medio per Fascia Oraria",
-                    markers=True
-                )
-                st.plotly_chart(fig_hourly, use_container_width=True)
+                st.metric("💰 Costo Totale Stimato", f"€{whatif_total_cost:,.2f}")
+            with col3:
+                st.metric("📈 Service Level Medio", f"{whatif_avg_service_level:.1%}")
+            with col4:
+                st.metric("📊 Occupazione Media", f"{whatif_avg_occupancy:.1%}")
+        
+        if stress_results is not None:
+            stress_total_agents = stress_results[stress_results['Status'] == 'Aperto']['Operatori necessari'].sum()
+            stress_total_cost = stress_results[stress_results['Status'] == 'Aperto']['Costo Stimato (€)'].sum()
+            stress_avg_service_level = stress_results[stress_results['Status'] == 'Aperto']['Service Level Stimato'].mean()
+            stress_avg_occupancy = stress_results[stress_results['Status'] == 'Aperto']['Occupazione Stimata'].mean()
             
-            # Heatmap Fabbisogno Operatori
-            st.markdown("**Mappa di Calore - Fabbisogno Settimanale**")
+            st.markdown("#### 📊 Risultati Stress Test")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("👥 Totale Ore-Operatore", f"{stress_total_agents:,.0f}")
+            with col2:
+                st.metric("💰 Costo Totale Stimato", f"€{stress_total_cost:,.2f}")
+            with col3:
+                st.metric("📈 Service Level Medio", f"{stress_avg_service_level:.1%}")
+            with col4:
+                st.metric("📊 Occupazione Media", f"{stress_avg_occupancy:.1%}")
+    
+    # Tabs per diverse visualizzazioni
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Dashboard", "🗓️ Pianificazione", "📋 Dettagli", "🔬 Sensitivity", "🔄 Scenari"])
+    
+    with tab1:
+        st.markdown("#### Dashboard Operativa")
+        
+        # Grafico andamento giornaliero
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Fabbisogno Operatori per Giorno**")
+            daily_summary = results_df[results_df['Status'] == 'Aperto'].groupby('Giorno').agg({
+                'Operatori necessari': 'sum',  # Ore totali erogate
+                'Costo Stimato (€)': 'sum'
+            }).reset_index()
+            
+            # Calcola anche il picco simultaneo
+            daily_peak = results_df[results_df['Status'] == 'Aperto'].groupby('Giorno')['Operatori necessari'].max().reset_index()
+            daily_peak.columns = ['Giorno', 'Picco Operatori']
+            
+            # Merge dei dati
+            daily_summary = daily_summary.merge(daily_peak, on='Giorno')
+            
+            # Ordina i giorni
+            giorni_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            daily_summary['Giorno'] = pd.Categorical(daily_summary['Giorno'], categories=giorni_order, ordered=True)
+            daily_summary = daily_summary.sort_values('Giorno')
+            
+            # Grafico con barre per ore totali e trendline per picchi simultanei
+            fig_daily = go.Figure()
+            
+            # Barre per ore totali erogate
+            fig_daily.add_trace(go.Bar(
+                name='Ore Totali Erogate',
+                x=daily_summary['Giorno'],
+                y=daily_summary['Operatori necessari'],
+                text=[f"{val:.0f}h" for val in daily_summary['Operatori necessari']],
+                textposition='outside',
+                marker_color='lightblue',
+                opacity=0.7
+            ))
+            
+            # Trendline per picco operatori simultanei
+            fig_daily.add_trace(go.Scatter(
+                name='Picco Operatori Simultanei',
+                x=daily_summary['Giorno'],
+                y=daily_summary['Picco Operatori'],
+                mode='lines+markers+text',
+                line=dict(color='red', width=3),
+                marker=dict(size=10, color='red', symbol='circle'),
+                text=[f"{val:.0f}" for val in daily_summary['Picco Operatori']],
+                textposition='top center',
+                textfont=dict(color='red', size=12, family='Arial Black'),
+                yaxis='y2'
+            ))
+            
+            fig_daily.update_layout(
+                title="Fabbisogno Operatori per Giorno",
+                yaxis=dict(
+                    title="Ore Totali Erogate",
+                    side='left'
+                ),
+                yaxis2=dict(
+                    title="Picco Operatori Simultanei",
+                    overlaying='y',
+                    side='right',
+                    showgrid=False
+                ),
+                legend=dict(
+                    orientation="h", 
+                    yanchor="bottom", 
+                    y=1.02, 
+                    xanchor="center", 
+                    x=0.5
+                ),
+                hovermode='x unified',
+                height=400
+            )
+            
+            st.plotly_chart(fig_daily, use_container_width=True)
+        
+        with col2:
+            st.markdown("**Distribuzione Oraria**")
+            hourly_summary = results_df[results_df['Status'] == 'Aperto'].groupby('Time slot')['Operatori necessari'].mean().reset_index()
+            
+            fig_hourly = px.line(
+                hourly_summary,
+                x='Time slot',
+                y='Operatori necessari',
+                title="Fabbisogno Medio per Fascia Oraria",
+                markers=True
+            )
+            st.plotly_chart(fig_hourly, use_container_width=True)
+        
+        # Heatmap Fabbisogno Operatori
+        st.markdown("**Mappa di Calore - Fabbisogno Settimanale**")
+        try:
+            pivot_data = results_df[results_df['Status'] == 'Aperto'].pivot_table(
+                values='Operatori necessari', 
+                index='Time slot', 
+                columns='Giorno',
+                aggfunc='mean'
+            )
+            
+            # Riordina le colonne
+            available_days = [day for day in giorni_order if day in pivot_data.columns]
+            pivot_data = pivot_data.reindex(columns=available_days)
+            
+            fig_heatmap = px.imshow(
+                pivot_data,
+                text_auto=True,
+                aspect="auto",
+                color_continuous_scale="Viridis",
+                title="Heatmap Fabbisogno Operatori"
+            )
+            fig_heatmap.update_layout(
+                xaxis_title="Giorno della Settimana",
+                yaxis_title="Fascia Oraria"
+            )
+            st.plotly_chart(fig_heatmap, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Impossibile generare la heatmap fabbisogno: {str(e)}")
+        
+        # Heatmap Service Level
+        if selected_model in ["Erlang C", "Erlang C - Conservativo", "Erlang A", "Simulazione"]:
+            st.markdown("**Mappa di Calore - Service Level Atteso**")
             try:
-                pivot_data = results_df[results_df['Status'] == 'Aperto'].pivot_table(
-                    values='Operatori necessari', 
+                sl_pivot_data = results_df[results_df['Status'] == 'Aperto'].pivot_table(
+                    values='Service Level Stimato', 
                     index='Time slot', 
                     columns='Giorno',
                     aggfunc='mean'
                 )
                 
                 # Riordina le colonne
-                available_days = [day for day in giorni_order if day in pivot_data.columns]
-                pivot_data = pivot_data.reindex(columns=available_days)
+                available_days_sl = [day for day in giorni_order if day in sl_pivot_data.columns]
+                sl_pivot_data = sl_pivot_data.reindex(columns=available_days_sl)
                 
-                fig_heatmap = px.imshow(
-                    pivot_data,
-                    text_auto=True,
-                    aspect="auto",
-                    color_continuous_scale="Viridis",
-                    title="Heatmap Fabbisogno Operatori"
-                )
-                fig_heatmap.update_layout(
+                # Converti in percentuale per la visualizzazione
+                sl_pivot_data_pct = sl_pivot_data * 100
+                
+                # Crea la heatmap con valori numerici visibili
+                fig_heatmap_sl = go.Figure(data=go.Heatmap(
+                    z=sl_pivot_data_pct.values,
+                    x=sl_pivot_data_pct.columns,
+                    y=sl_pivot_data_pct.index,
+                    colorscale='RdYlGn',  # Rosso per SL basso, Verde per SL alto
+                    zmid=80,  # Punto medio a 80%
+                    text=[[f"{val:.0f}%" for val in row] for row in sl_pivot_data_pct.values],
+                    texttemplate="%{text}",
+                    textfont={"size": 10, "color": "black"},
+                    hovertemplate="Giorno: %{x}<br>Ora: %{y}<br>Service Level: %{z:.1f}%<extra></extra>",
+                    showscale=True,
+                    colorbar=dict(
+                        title=dict(text="Service Level (%)", side="right"),
+                        thickness=15,
+                        len=0.7,
+                        tickmode="linear",
+                        tick0=0,
+                        dtick=10
+                    )
+                ))
+                
+                fig_heatmap_sl.update_layout(
+                    title="Heatmap Service Level Atteso (%)",
                     xaxis_title="Giorno della Settimana",
-                    yaxis_title="Fascia Oraria"
+                    yaxis_title="Fascia Oraria",
+                    height=500,
+                    font=dict(size=10)
                 )
-                st.plotly_chart(fig_heatmap, use_container_width=True)
-            except Exception as e:
-                st.warning(f"Impossibile generare la heatmap fabbisogno: {str(e)}")
-            
-            # Heatmap Service Level
-            if selected_model in ["Erlang C", "Erlang C - Conservativo", "Erlang A", "Simulazione"]:
-                st.markdown("**Mappa di Calore - Service Level Atteso**")
-                try:
-                    sl_pivot_data = results_df[results_df['Status'] == 'Aperto'].pivot_table(
-                        values='Service Level Stimato', 
-                        index='Time slot', 
-                        columns='Giorno',
-                        aggfunc='mean'
-                    )
-                    
-                    # Riordina le colonne
-                    available_days_sl = [day for day in giorni_order if day in sl_pivot_data.columns]
-                    sl_pivot_data = sl_pivot_data.reindex(columns=available_days_sl)
-                    
-                    # Converti in percentuale per la visualizzazione
-                    sl_pivot_data_pct = sl_pivot_data * 100
-                    
-                    # Crea la heatmap con valori numerici visibili
-                    fig_heatmap_sl = go.Figure(data=go.Heatmap(
-                        z=sl_pivot_data_pct.values,
-                        x=sl_pivot_data_pct.columns,
-                        y=sl_pivot_data_pct.index,
-                        colorscale='RdYlGn',  # Rosso per SL basso, Verde per SL alto
-                        zmid=80,  # Punto medio a 80%
-                        text=[[f"{val:.0f}%" for val in row] for row in sl_pivot_data_pct.values],
-                        texttemplate="%{text}",
-                        textfont={"size": 10, "color": "black"},
-                        hovertemplate="Giorno: %{x}<br>Ora: %{y}<br>Service Level: %{z:.1f}%<extra></extra>",
-                        showscale=True,
-                        colorbar=dict(
-                            title=dict(text="Service Level (%)", side="right"),
-                            thickness=15,
-                            len=0.7,
-                            tickmode="linear",
-                            tick0=0,
-                            dtick=10
-                        )
-                    ))
-                    
-                    fig_heatmap_sl.update_layout(
-                        title="Heatmap Service Level Atteso (%)",
-                        xaxis_title="Giorno della Settimana",
-                        yaxis_title="Fascia Oraria",
-                        height=500,
-                        font=dict(size=10)
-                    )
-                    
-                    st.plotly_chart(fig_heatmap_sl, use_container_width=True)
-                    
-                    # Aggiungi legenda interpretativa migliorata
-                    st.markdown("**📊 Interpretazione Service Level:**")
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("🔴 Critico", "< 70%", help="Service Level sotto la soglia critica - Richiede attenzione immediata")
-                    with col2:
-                        st.metric("� Migliorabile", "70-79%", help="Service Level sotto il target - Considerare ottimizzazioni")
-                    with col3:
-                        st.metric("🟡 Accettabile", "80-89%", help="Service Level nel range target")
-                    with col4:
-                        st.metric("🟢 Ottimale", "≥ 90%", help="Service Level eccellente")
-                        
-                except Exception as e:
-                    st.warning(f"Impossibile generare la heatmap service level: {str(e)}")
-            else:
-                st.info("💡 La heatmap del Service Level è disponibile solo per i modelli Erlang C, Erlang A e Simulazione.")
-        
-        with tab2:
-            st.markdown("#### Pianificazione Operativa")
-            
-            st.info("📋 **Tabella completa di pianificazione** - Visualizza tutti i slot temporali per ogni giorno della settimana")
-            
-            # Tabella pianificazione completa - SENZA FILTRI
-            display_columns = ['Giorno', 'Time slot', 'Numero di chiamate', 'Operatori necessari', 'Service Level Stimato', 'Occupazione Stimata', 'Costo Stimato (€)', 'Status']
-            
-            # Formattazione migliorata della tabella di pianificazione
-            def format_planning_table(df_to_format):
-                return df_to_format.style.format({
-                    'Service Level Stimato': '{:.1%}',
-                    'Occupazione Stimata': '{:.1%}',
-                    'Costo Stimato (€)': '€{:.2f}',
-                    'Operatori necessari': '{:.1f}'
-                }).apply(lambda x: ['background-color: #ffebee; color: #666' if v == 'Chiuso - Giorno non operativo' 
-                                   else 'background-color: #fff3e0; color: #666' if 'Chiuso' in str(v) 
-                                   else 'background-color: #e8f5e8' if 'Aperto' in str(v)
-                                   else '' for v in x], subset=['Status'])
-            
-            # Statistiche di riepilogo
-            col1, col2, col3, col4 = st.columns(4)
-            total_open_slots = len(results_df[results_df['Status'] == 'Aperto'])
-            total_closed_slots = len(results_df[results_df['Status'] != 'Aperto'])
-            avg_operators = results_df[results_df['Status'] == 'Aperto']['Operatori necessari'].mean()
-            total_cost = results_df[results_df['Status'] == 'Aperto']['Costo Stimato (€)'].sum()
-            
-            with col1:
-                st.metric("🟢 Slot Aperti", total_open_slots)
-            with col2:
-                st.metric("🔴 Slot Chiusi", total_closed_slots)
-            with col3:
-                st.metric("👥 Media Operatori", f"{avg_operators:.1f}")
-            with col4:
-                st.metric("💰 Costo Totale", f"€{total_cost:,.0f}")
-            
-            st.dataframe(
-                format_planning_table(results_df[display_columns]),
-                use_container_width=True,
-                height=600
-            )
-        
-        with tab3:
-            st.markdown("#### Dettagli Completi")
-            
-            # Formattazione tabella
-            def format_results_table(df_to_format):
-                return df_to_format.style.format({
-                    'Service Level Stimato': '{:.1%}',
-                    'Occupazione Stimata': '{:.1%}',
-                    'Costo Stimato (€)': '€{:.2f}'
-                })
-            
-            st.dataframe(format_results_table(results_df), use_container_width=True)
-            
-            # Download dei risultati
-            csv_data = convert_df_to_csv(results_df)
-            st.download_button(
-                label="📥 Scarica Risultati CSV",
-                data=csv_data,
-                file_name=f"capacity_sizing_{selected_model.lower().replace(' ', '_')}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.csv",
-                mime="text/csv"
-            )
-        
-        with tab4:
-            st.markdown("#### 🔬 Sensitivity Analysis")
-            
-            if selected_model in ["Erlang C", "Erlang A"] and 'aht' in st.session_state.model_params:
-                st.info("📊 **Analisi di sensitività professionale** - Tabella delle performance al variare del numero di agenti, utilizzando i parametri correnti della sidebar")
                 
-                # Parametri per la sensitivity
-                col1, col2 = st.columns(2)
-                with col1:
-                    test_arrival_rate = st.number_input("Test Arrival Rate (chiamate/ora)", 
-                                                      min_value=1, max_value=1000, value=100,
-                                                      help="Numero di chiamate per ora da testare")
-                with col2:
-                    max_occupancy = st.slider("Max Occupazione Target (%)", 
-                                            50, 95, 85,
-                                            help="Soglia massima di occupazione accettabile") / 100
+                st.plotly_chart(fig_heatmap_sl, use_container_width=True)
                 
-                # Genera automaticamente la tabella con i parametri correnti della sidebar
-                with st.spinner("Generazione tabella sensitivity professionale..."):
-                    # Usa i parametri del modello corrente dalla sidebar
-                    aht = st.session_state.model_params['aht']
-                    service_level_target = st.session_state.model_params['service_level'] / 100
-                    answer_time_target = st.session_state.model_params['answer_time']
-                    patience = st.session_state.model_params.get('patience', None)
-                    # Usa il max_occupancy sia dal slider che dai parametri del modello
-                    model_max_occupancy = st.session_state.model_params.get('max_occupancy', max_occupancy)
-                    
-                    sensitivity_df = generate_sensitivity_table(
-                        test_arrival_rate,
-                        aht,
-                        service_level_target,
-                        answer_time_target,
-                        patience,
-                        selected_model,
-                        min(max_occupancy, model_max_occupancy)  # Usa il valore più restrittivo
-                    )
-                    
-                    # Formattazione della tabella professionale
-                    def format_sensitivity_table(df):
-                        return df.style.format({
-                            'Occupancy %': '{:.1f}%',
-                            'Service Level %': '{:.1f}%',
-                            'ASA (seconds)': '{:.1f}',
-                            '% Answered Immediately': '{:.1f}%',
-                            '% Abandoned': '{:.1f}%'
-                        }).apply(
-                            lambda x: ['background-color: #e8f5e8; font-weight: bold; color: #2d5a2d' if v 
-                                      else 'background-color: #ffe6e6; color: #8b0000' if not v and isinstance(v, bool)
-                                      else '' for v in x], 
-                            subset=['Target Met']
-                        ).apply(
-                            lambda x: ['background-color: #f0f8ff' if i % 2 == 0 else '' for i in range(len(x))],
-                            axis=0
-                        )
-                    
-                    st.markdown("**📋 Professional Erlang Sensitivity Table**")
-                    st.markdown(f"*Parametri: {test_arrival_rate} chiamate/ora, AHT {aht}s, SL target {service_level_target:.0%}, Answer time {answer_time_target}s*")
-                    
-                    st.dataframe(format_sensitivity_table(sensitivity_df), use_container_width=True, hide_index=True)
-                    
-                    # Evidenzia la configurazione ottimale
-                    optimal_rows = sensitivity_df[sensitivity_df['Target Met'] == True]
-                    if not optimal_rows.empty:
-                        optimal_row = optimal_rows.iloc[0]
-                        st.success(f"✅ **Configurazione ottimale:** {optimal_row['Number of Agents']} agenti → SL {optimal_row['Service Level %']:.1f}%, Occupancy {optimal_row['Occupancy %']:.1f}%, ASA {optimal_row['ASA (seconds)']:.1f}s")
-                    else:
-                        st.warning("⚠️ Nessuna configurazione soddisfa tutti i criteri nel range testato")
-                    
-                    # Grafici di sensitivity professionali
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        # Service Level Chart
-                        fig_sl = go.Figure()
-                        fig_sl.add_trace(go.Scatter(
-                            x=sensitivity_df['Number of Agents'], 
-                            y=sensitivity_df['Service Level %'],
-                            mode='lines+markers',
-                            name='Service Level',
-                            line=dict(color='blue', width=3),
-                            marker=dict(size=8)
-                        ))
-                        fig_sl.add_hline(y=service_level_target*100, line_dash="dash", 
-                                       line_color="red", annotation_text=f"Target SL ({service_level_target:.0%})")
-                        fig_sl.update_layout(
-                            title="Service Level vs Numero Agenti",
-                            xaxis_title="Number of Agents",
-                            yaxis_title="Service Level (%)",
-                            height=400
-                        )
-                        st.plotly_chart(fig_sl, use_container_width=True)
-                    
-                    with col2:
-                        # Occupancy Chart
-                        fig_occ = go.Figure()
-                        fig_occ.add_trace(go.Scatter(
-                            x=sensitivity_df['Number of Agents'], 
-                            y=sensitivity_df['Occupancy %'],
-                            mode='lines+markers',
-                            name='Occupancy',
-                            line=dict(color='orange', width=3),
-                            marker=dict(size=8)
-                        ))
-                        fig_occ.add_hline(y=max_occupancy*100, line_dash="dash", 
-                                        line_color="red", annotation_text=f"Max Occupancy ({max_occupancy:.0%})")
-                        fig_occ.update_layout(
-                            title="Occupazione vs Numero Agenti",
-                            xaxis_title="Number of Agents",
-                            yaxis_title="Occupancy (%)",
-                            height=400
-                        )
-                        st.plotly_chart(fig_occ, use_container_width=True)
-                    
-                    # Grafico combinato ASA e % Answered Immediately
-                    st.markdown("**⏱️ Tempi di Risposta**")
-                    fig_response = go.Figure()
-                    
-                    fig_response.add_trace(go.Scatter(
-                        x=sensitivity_df['Number of Agents'], 
-                        y=sensitivity_df['ASA (seconds)'],
-                        mode='lines+markers',
-                        name='ASA (seconds)',
-                        line=dict(color='red', width=2),
-                        yaxis='y'
-                    ))
-                    
-                    fig_response.add_trace(go.Scatter(
-                        x=sensitivity_df['Number of Agents'], 
-                        y=sensitivity_df['% Answered Immediately'],
-                        mode='lines+markers',
-                        name='% Answered Immediately',
-                        line=dict(color='green', width=2),
-                        yaxis='y2'
-                    ))
-                    
-                    fig_response.update_layout(
-                        title="ASA e % Risposta Immediata vs Numero Agenti",
-                        xaxis_title="Number of Agents",
-                        yaxis=dict(title="ASA (seconds)", side='left'),
-                        yaxis2=dict(title="% Answered Immediately", side='right', overlaying='y'),
-                        height=400
-                    )
-                    
-                    st.plotly_chart(fig_response, use_container_width=True)
-                    
-                    # Download sensitivity table
-                    csv_sensitivity = convert_df_to_csv(sensitivity_df)
-                    st.download_button(
-                        label="📥 Scarica Sensitivity Analysis CSV",
-                        data=csv_sensitivity,
-                        file_name=f"erlang_sensitivity_{selected_model.lower().replace(' ', '_')}_{test_arrival_rate}cph_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.csv",
-                        mime="text/csv"
-                    )
-            else:
-                st.info("🔬 **Sensitivity Analysis** è disponibile solo per i modelli Erlang C e Erlang A con operazioni INBOUND")
-        
-        with tab5:
-            st.markdown("#### Analisi Scenari Interattiva")
-            
-            # Definisci baseline_total per entrambi gli scenari
-            baseline_total = total_agents
-            
-            if whatif_results is not None and stress_results is not None:
-                # Se entrambi gli scenari sono attivi, mostra confronto a tre
-                st.markdown("**� Confronto Multi-Scenario: AS-IS vs What-If vs Stress Test**")
-                
-                # Calcoli
-                whatif_total = whatif_results[whatif_results['Status'] == 'Aperto']['Operatori necessari'].sum()
-                stress_total = stress_results[stress_results['Status'] == 'Aperto']['Operatori necessari'].sum()
-                
-                # Metriche di riepilogo
+                # Aggiungi legenda interpretativa migliorata
+                st.markdown("**📊 Interpretazione Service Level:**")
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("📊 AS-IS (Baseline)", f"{baseline_total:,.0f} h", help="Scenario operativo standard")
+                    st.metric("🔴 Critico", "< 70%", help="Service Level sotto la soglia critica - Richiede attenzione immediata")
                 with col2:
-                    delta_whatif = whatif_total - baseline_total
-                    st.metric("🧪 What-If", f"{whatif_total:,.0f} h", delta=f"{delta_whatif:+.0f} h")
+                    st.metric("� Migliorabile", "70-79%", help="Service Level sotto il target - Considerare ottimizzazioni")
                 with col3:
-                    delta_stress = stress_total - baseline_total
-                    st.metric("🆘 Stress Test", f"{stress_total:,.0f} h", delta=f"{delta_stress:+.0f} h")
+                    st.metric("🟡 Accettabile", "80-89%", help="Service Level nel range target")
                 with col4:
-                    max_scenario = max(whatif_total, stress_total)
-                    extra_capacity = max_scenario - baseline_total
-                    st.metric("💪 Extra Capacity", f"{extra_capacity:+.0f} h", help="Capacità aggiuntiva necessaria nel worst case")
+                    st.metric("🟢 Ottimale", "≥ 90%", help="Service Level eccellente")
+                    
+            except Exception as e:
+                st.warning(f"Impossibile generare la heatmap service level: {str(e)}")
+        else:
+            st.info("💡 La heatmap del Service Level è disponibile solo per i modelli Erlang C, Erlang A e Simulazione.")
+    
+    with tab2:
+        st.markdown("#### Pianificazione Operativa")
+        
+        st.info("📋 **Tabella completa di pianificazione** - Visualizza tutti i slot temporali per ogni giorno della settimana")
+        
+        # Tabella pianificazione completa - SENZA FILTRI
+        display_columns = ['Giorno', 'Time slot', 'Numero di chiamate', 'Operatori necessari', 'Service Level Stimato', 'Occupazione Stimata', 'Costo Stimato (€)', 'Status']
+        
+        # Formattazione migliorata della tabella di pianificazione
+        def format_planning_table(df_to_format):
+            return df_to_format.style.format({
+                'Service Level Stimato': '{:.1%}',
+                'Occupazione Stimata': '{:.1%}',
+                'Costo Stimato (€)': '€{:.2f}',
+                'Operatori necessari': '{:.1f}'
+            }).apply(lambda x: ['background-color: #ffebee; color: #666' if v == 'Chiuso - Giorno non operativo' 
+                               else 'background-color: #fff3e0; color: #666' if 'Chiuso' in str(v) 
+                               else 'background-color: #e8f5e8' if 'Aperto' in str(v)
+                               else '' for v in x], subset=['Status'])
+        
+        # Statistiche di riepilogo
+        col1, col2, col3, col4 = st.columns(4)
+        total_open_slots = len(results_df[results_df['Status'] == 'Aperto'])
+        total_closed_slots = len(results_df[results_df['Status'] != 'Aperto'])
+        avg_operators = results_df[results_df['Status'] == 'Aperto']['Operatori necessari'].mean()
+        total_cost = results_df[results_df['Status'] == 'Aperto']['Costo Stimato (€)'].sum()
+        
+        with col1:
+            st.metric("🟢 Slot Aperti", total_open_slots)
+        with col2:
+            st.metric("🔴 Slot Chiusi", total_closed_slots)
+        with col3:
+            st.metric("👥 Media Operatori", f"{avg_operators:.1f}")
+        with col4:
+            st.metric("💰 Costo Totale", f"€{total_cost:,.0f}")
+        
+        st.dataframe(
+            format_planning_table(results_df[display_columns]),
+            use_container_width=True,
+            height=600
+        )
+    
+    with tab3:
+        st.markdown("#### Dettagli Completi")
+        
+        # Formattazione tabella
+        def format_results_table(df_to_format):
+            return df_to_format.style.format({
+                'Service Level Stimato': '{:.1%}',
+                'Occupazione Stimata': '{:.1%}',
+                'Costo Stimato (€)': '€{:.2f}'
+            })
+        
+        st.dataframe(format_results_table(results_df), use_container_width=True)
+        
+        # Download dei risultati
+        csv_data = convert_df_to_csv(results_df)
+        st.download_button(
+            label="📥 Scarica Risultati CSV",
+            data=csv_data,
+            file_name=f"capacity_sizing_{selected_model.lower().replace(' ', '_')}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv"
+        )
+    
+    with tab4:
+        st.markdown("#### 🔬 Sensitivity Analysis")
+        
+        if selected_model in ["Erlang C", "Erlang A"] and 'aht' in st.session_state.model_params:
+            st.info("📊 **Analisi di sensitività professionale** - Tabella delle performance al variare del numero di agenti, utilizzando i parametri correnti della sidebar")
+            
+            # Parametri per la sensitivity
+            col1, col2 = st.columns(2)
+            with col1:
+                test_arrival_rate = st.number_input("Test Arrival Rate (chiamate/ora)", 
+                                                  min_value=1, max_value=1000, value=100,
+                                                  help="Numero di chiamate per ora da testare")
+            with col2:
+                max_occupancy = st.slider("Max Occupazione Target (%)", 
+                                        50, 95, 85,
+                                        help="Soglia massima di occupazione accettabile") / 100
+            
+            # Genera automaticamente la tabella con i parametri correnti della sidebar
+            with st.spinner("Generazione tabella sensitivity professionale..."):
+                # Usa i parametri del modello corrente dalla sidebar
+                aht = st.session_state.model_params['aht']
+                service_level_target = st.session_state.model_params['service_level'] / 100
+                answer_time_target = st.session_state.model_params['answer_time']
+                patience = st.session_state.model_params.get('patience', None)
+                # Usa il max_occupancy sia dal slider che dai parametri del modello
+                model_max_occupancy = st.session_state.model_params.get('max_occupancy', max_occupancy)
                 
-                # Grafico comparativo a tre scenari
-                st.markdown("**📈 Confronto Giornaliero Multi-Scenario**")
-                
-                # Prepara dati
-                baseline_daily = results_df[results_df['Status'] == 'Aperto'].groupby('Giorno')['Operatori necessari'].sum().reset_index()
-                whatif_daily = whatif_results[whatif_results['Status'] == 'Aperto'].groupby('Giorno')['Operatori necessari'].sum().reset_index()
-                stress_daily = stress_results[stress_results['Status'] == 'Aperto'].groupby('Giorno')['Operatori necessari'].sum().reset_index()
-                
-                # Ordina giorni
-                giorni_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-                for df in [baseline_daily, whatif_daily, stress_daily]:
-                    df['Giorno'] = pd.Categorical(df['Giorno'], categories=giorni_order, ordered=True)
-                    df.sort_values('Giorno', inplace=True)
-                
-                fig_multi = go.Figure()
-                
-                fig_multi.add_trace(go.Bar(
-                    name='AS-IS (Baseline)',
-                    x=baseline_daily['Giorno'],
-                    y=baseline_daily['Operatori necessari'],
-                    marker_color='lightblue',
-                    text=[f"{val:.0f}h" for val in baseline_daily['Operatori necessari']],
-                    textposition='outside',
-                    hovertemplate="<b>AS-IS</b><br>Giorno: %{x}<br>Ore: %{y}<extra></extra>"
-                ))
-                
-                fig_multi.add_trace(go.Bar(
-                    name='What-If Scenario',
-                    x=whatif_daily['Giorno'],
-                    y=whatif_daily['Operatori necessari'],
-                    marker_color='orange',
-                    text=[f"{val:.0f}h" for val in whatif_daily['Operatori necessari']],
-                    textposition='outside',
-                    hovertemplate="<b>What-If</b><br>Giorno: %{x}<br>Ore: %{y}<extra></extra>"
-                ))
-                
-                fig_multi.add_trace(go.Bar(
-                    name='Stress Test',
-                    x=stress_daily['Giorno'],
-                    y=stress_daily['Operatori necessari'],
-                    marker_color='red',
-                    text=[f"{val:.0f}h" for val in stress_daily['Operatori necessari']],
-                    textposition='outside',
-                    hovertemplate="<b>Stress</b><br>Giorno: %{x}<br>Ore: %{y}<extra></extra>"
-                ))
-                
-                fig_multi.update_layout(
-                    title="Confronto Multi-Scenario: Fabbisogno per Giorno",
-                    barmode='group',
-                    yaxis_title="Ore Operatori Necessarie",
-                    xaxis_title="Giorno della Settimana",
-                    hovermode='x unified',
-                    height=500
+                sensitivity_df = generate_sensitivity_table(
+                    test_arrival_rate,
+                    aht,
+                    service_level_target,
+                    answer_time_target,
+                    patience,
+                    selected_model,
+                    min(max_occupancy, model_max_occupancy)  # Usa il valore più restrittivo
                 )
                 
-                st.plotly_chart(fig_multi, use_container_width=True)
+                # Formattazione della tabella professionale
+                def format_sensitivity_table(df):
+                    return df.style.format({
+                        'Occupancy %': '{:.1f}%',
+                        'Service Level %': '{:.1f}%',
+                        'ASA (seconds)': '{:.1f}',
+                        '% Answered Immediately': '{:.1f}%',
+                        '% Abandoned': '{:.1f}%'
+                    }).apply(
+                        lambda x: ['background-color: #e8f5e8; font-weight: bold; color: #2d5a2d' if v 
+                                  else 'background-color: #ffe6e6; color: #8b0000' if not v and isinstance(v, bool)
+                                  else '' for v in x], 
+                        subset=['Target Met']
+                    ).apply(
+                        lambda x: ['background-color: #f0f8ff' if i % 2 == 0 else '' for i in range(len(x))],
+                        axis=0
+                    )
                 
-                # Grafico differenze percentuali
+                st.markdown("**📋 Professional Erlang Sensitivity Table**")
+                st.markdown(f"*Parametri: {test_arrival_rate} chiamate/ora, AHT {aht}s, SL target {service_level_target:.0%}, Answer time {answer_time_target}s*")
+                
+                st.dataframe(format_sensitivity_table(sensitivity_df), use_container_width=True, hide_index=True)
+                
+                # Evidenzia la configurazione ottimale
+                optimal_rows = sensitivity_df[sensitivity_df['Target Met'] == True]
+                if not optimal_rows.empty:
+                    optimal_row = optimal_rows.iloc[0]
+                    st.success(f"✅ **Configurazione ottimale:** {optimal_row['Number of Agents']} agenti → SL {optimal_row['Service Level %']:.1f}%, Occupancy {optimal_row['Occupancy %']:.1f}%, ASA {optimal_row['ASA (seconds)']:.1f}s")
+                else:
+                    st.warning("⚠️ Nessuna configurazione soddisfa tutti i criteri nel range testato")
+                
+                # Grafici di sensitivity professionali
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    st.markdown("**📊 Impatto What-If (%)**")
-                    whatif_impact = ((whatif_daily['Operatori necessari'] - baseline_daily['Operatori necessari']) / baseline_daily['Operatori necessari'] * 100).fillna(0)
-                    
-                    fig_whatif_impact = go.Figure(data=go.Bar(
-                        x=baseline_daily['Giorno'],
-                        y=whatif_impact,
-                        marker_color=['green' if x >= 0 else 'red' for x in whatif_impact],
-                        text=[f"{val:+.1f}%" for val in whatif_impact],
-                        textposition='outside'
+                    # Service Level Chart
+                    fig_sl = go.Figure()
+                    fig_sl.add_trace(go.Scatter(
+                        x=sensitivity_df['Number of Agents'], 
+                        y=sensitivity_df['Service Level %'],
+                        mode='lines+markers',
+                        name='Service Level',
+                        line=dict(color='blue', width=3),
+                        marker=dict(size=8)
                     ))
-                    
-                    fig_whatif_impact.update_layout(
-                        title="Impatto What-If per Giorno",
-                        yaxis_title="Variazione (%)",
-                        xaxis_title="Giorno",
+                    fig_sl.add_hline(y=service_level_target*100, line_dash="dash", 
+                                   line_color="red", annotation_text=f"Target SL ({service_level_target:.0%})")
+                    fig_sl.update_layout(
+                        title="Service Level vs Numero Agenti",
+                        xaxis_title="Number of Agents",
+                        yaxis_title="Service Level (%)",
                         height=400
                     )
-                    
-                    st.plotly_chart(fig_whatif_impact, use_container_width=True)
+                    st.plotly_chart(fig_sl, use_container_width=True)
                 
                 with col2:
-                    st.markdown("**⚠️ Impatto Stress Test (%)**")
-                    stress_impact = ((stress_daily['Operatori necessari'] - baseline_daily['Operatori necessari']) / baseline_daily['Operatori necessari'] * 100).fillna(0)
-                    
-                    fig_stress_impact = go.Figure(data=go.Bar(
-                        x=baseline_daily['Giorno'],
-                        y=stress_impact,
-                        marker_color=['darkred' if x >= 20 else 'orange' if x >= 10 else 'yellow' for x in stress_impact],
-                        text=[f"{val:+.1f}%" for val in stress_impact],
-                        textposition='outside'
+                    # Occupancy Chart
+                    fig_occ = go.Figure()
+                    fig_occ.add_trace(go.Scatter(
+                        x=sensitivity_df['Number of Agents'], 
+                        y=sensitivity_df['Occupancy %'],
+                        mode='lines+markers',
+                        name='Occupancy',
+                        line=dict(color='orange', width=3),
+                        marker=dict(size=8)
                     ))
-                    
-                    fig_stress_impact.update_layout(
-                        title="Impatto Stress Test per Giorno",
-                        yaxis_title="Variazione (%)",
-                        xaxis_title="Giorno",
+                    fig_occ.add_hline(y=max_occupancy*100, line_dash="dash", 
+                                    line_color="red", annotation_text=f"Max Occupancy ({max_occupancy:.0%})")
+                    fig_occ.update_layout(
+                        title="Occupazione vs Numero Agenti",
+                        xaxis_title="Number of Agents",
+                        yaxis_title="Occupancy (%)",
                         height=400
                     )
-                    
-                    st.plotly_chart(fig_stress_impact, use_container_width=True)
+                    st.plotly_chart(fig_occ, use_container_width=True)
                 
-            elif whatif_results is not None:
-                st.markdown("**📊 What-If Analysis**")
+                # Grafico combinato ASA e % Answered Immediately
+                st.markdown("**⏱️ Tempi di Risposta**")
+                fig_response = go.Figure()
                 
-                # Confronto baseline vs what-if
-                whatif_total = whatif_results[whatif_results['Status'] == 'Aperto']['Operatori necessari'].sum()
+                fig_response.add_trace(go.Scatter(
+                    x=sensitivity_df['Number of Agents'], 
+                    y=sensitivity_df['ASA (seconds)'],
+                    mode='lines+markers',
+                    name='ASA (seconds)',
+                    line=dict(color='red', width=2),
+                    yaxis='y'
+                ))
                 
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("📊 AS-IS (Baseline)", f"{baseline_total:,.0f} h")
-                with col2:
-                    delta = whatif_total - baseline_total
-                    st.metric("🧪 What-If Scenario", f"{whatif_total:,.0f} h", delta=f"{delta:+.0f} h")
-                with col3:
-                    pct_change = (delta / baseline_total * 100) if baseline_total > 0 else 0
-                    st.metric("📈 Variazione", f"{pct_change:+.1f}%", delta=f"{pct_change:+.1f}%")
+                fig_response.add_trace(go.Scatter(
+                    x=sensitivity_df['Number of Agents'], 
+                    y=sensitivity_df['% Answered Immediately'],
+                    mode='lines+markers',
+                    name='% Answered Immediately',
+                    line=dict(color='green', width=2),
+                    yaxis='y2'
+                ))
                 
-                # Mostra parametri applicati
-                st.info(f"� **Variazioni applicate:** Volume {st.session_state.whatif_params['volume_var']:+d}%, AHT {st.session_state.whatif_params['aht_var']:+d}%, SL Target {st.session_state.whatif_params['sl_var']:+d}%")
+                fig_response.update_layout(
+                    title="ASA e % Risposta Immediata vs Numero Agenti",
+                    xaxis_title="Number of Agents",
+                    yaxis=dict(title="ASA (seconds)", side='left'),
+                    yaxis2=dict(title="% Answered Immediately", side='right', overlaying='y'),
+                    height=400
+                )
                 
-                # Grafico comparativo What-If migliorato
-                st.markdown("**🔄 Confronto Interattivo: AS-IS vs What-If**")
+                st.plotly_chart(fig_response, use_container_width=True)
                 
-                # Prepara dati per il confronto
-                baseline_daily = results_df[results_df['Status'] == 'Aperto'].groupby('Giorno')['Operatori necessari'].sum().reset_index()
-                whatif_daily = whatif_results[whatif_results['Status'] == 'Aperto'].groupby('Giorno')['Operatori necessari'].sum().reset_index()
+                # Download sensitivity table
+                csv_sensitivity = convert_df_to_csv(sensitivity_df)
+                st.download_button(
+                    label="📥 Scarica Sensitivity Analysis CSV",
+                    data=csv_sensitivity,
+                    file_name=f"erlang_sensitivity_{selected_model.lower().replace(' ', '_')}_{test_arrival_rate}cph_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv"
+                )
+        else:
+            st.info("🔬 **Sensitivity Analysis** è disponibile solo per i modelli Erlang C e Erlang A con operazioni INBOUND")
+    
+    with tab5:
+        st.markdown("#### Analisi Scenari Interattiva")
+        
+        # Definisci baseline_total per entrambi gli scenari
+        baseline_total = total_agents
+        
+        if whatif_results is not None and stress_results is not None:
+            # Se entrambi gli scenari sono attivi, mostra confronto a tre
+            st.markdown("**� Confronto Multi-Scenario: AS-IS vs What-If vs Stress Test**")
+            
+            # Calcoli
+            whatif_total = whatif_results[whatif_results['Status'] == 'Aperto']['Operatori necessari'].sum()
+            stress_total = stress_results[stress_results['Status'] == 'Aperto']['Operatori necessari'].sum()
+            
+            # Metriche di riepilogo
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("📊 AS-IS (Baseline)", f"{baseline_total:,.0f} h", help="Scenario operativo standard")
+            with col2:
+                delta_whatif = whatif_total - baseline_total
+                st.metric("🧪 What-If", f"{whatif_total:,.0f} h", delta=f"{delta_whatif:+.0f} h")
+            with col3:
+                delta_stress = stress_total - baseline_total
+                st.metric("🆘 Stress Test", f"{stress_total:,.0f} h", delta=f"{delta_stress:+.0f} h")
+            with col4:
+                max_scenario = max(whatif_total, stress_total)
+                extra_capacity = max_scenario - baseline_total
+                st.metric("💪 Extra Capacity", f"{extra_capacity:+.0f} h", help="Capacità aggiuntiva necessaria nel worst case")
+            
+            # Grafico comparativo a tre scenari
+            st.markdown("**📈 Confronto Giornaliero Multi-Scenario**")
+            
+            # Prepara dati
+            baseline_daily = results_df[results_df['Status'] == 'Aperto'].groupby('Giorno')['Operatori necessari'].sum().reset_index()
+            whatif_daily = whatif_results[whatif_results['Status'] == 'Aperto'].groupby('Giorno')['Operatori necessari'].sum().reset_index()
+            stress_daily = stress_results[stress_results['Status'] == 'Aperto'].groupby('Giorno')['Operatori necessari'].sum().reset_index()
+            
+            # Ordina giorni
+            giorni_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            for df in [baseline_daily, whatif_daily, stress_daily]:
+                df['Giorno'] = pd.Categorical(df['Giorno'], categories=giorni_order, ordered=True)
+                df.sort_values('Giorno', inplace=True)
+            
+            fig_multi = go.Figure()
+            
+            fig_multi.add_trace(go.Bar(
+                name='AS-IS (Baseline)',
+                x=baseline_daily['Giorno'],
+                y=baseline_daily['Operatori necessari'],
+                marker_color='lightblue',
+                text=[f"{val:.0f}h" for val in baseline_daily['Operatori necessari']],
+                textposition='outside',
+                hovertemplate="<b>AS-IS</b><br>Giorno: %{x}<br>Ore: %{y}<extra></extra>"
+            ))
+            
+            fig_multi.add_trace(go.Bar(
+                name='What-If Scenario',
+                x=whatif_daily['Giorno'],
+                y=whatif_daily['Operatori necessari'],
+                marker_color='orange',
+                text=[f"{val:.0f}h" for val in whatif_daily['Operatori necessari']],
+                textposition='outside',
+                hovertemplate="<b>What-If</b><br>Giorno: %{x}<br>Ore: %{y}<extra></extra>"
+            ))
+            
+            fig_multi.add_trace(go.Bar(
+                name='Stress Test',
+                x=stress_daily['Giorno'],
+                y=stress_daily['Operatori necessari'],
+                marker_color='red',
+                text=[f"{val:.0f}h" for val in stress_daily['Operatori necessari']],
+                textposition='outside',
+                hovertemplate="<b>Stress</b><br>Giorno: %{x}<br>Ore: %{y}<extra></extra>"
+            ))
+            
+            fig_multi.update_layout(
+                title="Confronto Multi-Scenario: Fabbisogno per Giorno",
+                barmode='group',
+                yaxis_title="Ore Operatori Necessarie",
+                xaxis_title="Giorno della Settimana",
+                hovermode='x unified',
+                height=500
+            )
+            
+            st.plotly_chart(fig_multi, use_container_width=True)
+            
+            # Grafico differenze percentuali
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**📊 Impatto What-If (%)**")
+                whatif_impact = ((whatif_daily['Operatori necessari'] - baseline_daily['Operatori necessari']) / baseline_daily['Operatori necessari'] * 100).fillna(0)
+                
+                fig_whatif_impact = go.Figure(data=go.Bar(
+                    x=baseline_daily['Giorno'],
+                    y=whatif_impact,
+                    marker_color=['green' if x >= 0 else 'red' for x in whatif_impact],
+                    text=[f"{val:+.1f}%" for val in whatif_impact],
+                    textposition='outside'
+                ))
+                
+                fig_whatif_impact.update_layout(
+                    title="Impatto What-If per Giorno",
+                    yaxis_title="Variazione (%)",
+                    xaxis_title="Giorno",
+                    height=400
+                )
+                
+                st.plotly_chart(fig_whatif_impact, use_container_width=True)
+            
+            with col2:
+                st.markdown("**⚠️ Impatto Stress Test (%)**")
+                stress_impact = ((stress_daily['Operatori necessari'] - baseline_daily['Operatori necessari']) / baseline_daily['Operatori necessari'] * 100).fillna(0)
                 
                 # Ordina giorni
                 giorni_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -1324,8 +1328,29 @@ if run_calculation:
                     )
                     
                     st.plotly_chart(fig_delta, use_container_width=True)
+        
+        elif whatif_results is not None:
+            # Solo What-If scenario attivo
+            st.markdown("**🧪 What-If Analysis**")
             
-            elif stress_results is not None:
+            # Calcoli
+            whatif_total = whatif_results[whatif_results['Status'] == 'Aperto']['Operatori necessari'].sum()
+            
+            # Metriche di riepilogo
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("📊 AS-IS (Baseline)", f"{baseline_total:,.0f} h", help="Scenario operativo standard")
+            with col2:
+                delta_whatif = whatif_total - baseline_total
+                st.metric("🧪 What-If", f"{whatif_total:,.0f} h", delta=f"{delta_whatif:+.0f} h")
+            with col3:
+                percentage_change = (delta_whatif / baseline_total * 100) if baseline_total > 0 else 0
+                st.metric("🔄 Variazione %", f"{percentage_change:+.1f}%")
+            
+            # Aggiungi grafici per solo What-If qui se necessario
+            
+        elif stress_results is not None:
+            # Solo Stress Test attivo
                 st.markdown("**🆘 Stress Test Analysis**")
                 
                 # Confronto baseline vs stress
@@ -1470,12 +1495,10 @@ if run_calculation:
                     })
                     
                     st.dataframe(impact_df, use_container_width=True, hide_index=True)
-            
-            if whatif_results is None and stress_results is None:
-                st.info("👆 Abilita What-If Analysis o Stress Test nella sidebar per vedere i confronti scenari.")
-    
-    else:
-        st.warning("⚠️ Nessun risultato ottenuto. Verifica i parametri di configurazione.")
+        
+        else:
+            # Nessuno scenario attivo
+            st.info("👆 Abilita What-If Analysis o Stress Test nella sidebar per vedere i confronti scenari.")
 
 else:
     # Pagina iniziale
