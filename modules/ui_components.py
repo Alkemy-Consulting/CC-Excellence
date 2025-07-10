@@ -14,9 +14,13 @@ from datetime import datetime, timedelta
 try:
     from .config import *
     from .data_utils import *
+    from .config import SUPPORTED_HOLIDAY_COUNTRIES
+    from .data_utils import get_holidays_for_country, parse_manual_holidays
 except ImportError:
     from config import *
     from data_utils import *
+    from config import SUPPORTED_HOLIDAY_COUNTRIES
+    from data_utils import get_holidays_for_country, parse_manual_holidays
 
 def render_data_upload_section() -> Tuple[Optional[pd.DataFrame], Optional[str], Optional[str], Dict[str, Any]]:
     """
@@ -418,7 +422,7 @@ def render_data_cleaning_section(df: pd.DataFrame, date_col: str, target_col: st
         st.metric("📈 Mean", f"{final_stats['mean_value']:.2f}")
     with col2:
         st.metric("📅 Days", f"{final_stats['date_range_days']}")
-        st.metric("� Std", f"{final_stats['std_value']:.2f}")
+        st.metric("📈 Std", f"{final_stats['std_value']:.2f}")
     
     return df_agg, cleaning_config
 
@@ -1001,80 +1005,12 @@ def render_forecast_config_section() -> Dict[str, Any]:
         )
         
         if config['enable_backtesting']:
-            backtest_method = st.radio(
-                "Validation Method",
-                ["Simple Split", "Cross-Validation", "Rolling Window"],
-                help="Method for splitting data into train/test sets"
-            )
-            
-            config['backtest_method'] = backtest_method
-            
-            if backtest_method == "Simple Split":
-                config['train_size'] = st.slider(
-                    "Training Set Size",
-                    min_value=0.5,
-                    max_value=0.9,
-                    value=0.8,
-                    step=0.05,
-                    format="%.2f",
-                    help="Proportion of data to use for training"
-                )
-            
-            elif backtest_method == "Cross-Validation":
-                col1, col2 = st.columns(2)
-                with col1:
-                with col1:
-                    config['cv_folds'] = st.number_input(
-                        "Number of Folds",
-                        min_value=3,
-                        max_value=20,
-                        value=5,
-                        help="Number of cross-validation folds"
-                    )
-                with col2:
-                    config['cv_horizon'] = st.number_input(
-                        "CV Horizon",
-                        min_value=1,
-                        max_value=90,
-                        value=30,
-                        help="Forecast horizon for each fold"
-                    )
-            
-            elif backtest_method == "Rolling Window":
-                col1, col2 = st.columns(2)
-                with col1:
-                    config['window_size'] = st.number_input(
-                        "Window Size",
-                        min_value=50,
-                        max_value=1000,
-                        value=200,
-                        help="Size of rolling training window"
-                    )
-                with col2:
-                    config['step_size'] = st.number_input(
-                        "Step Size",
-                        min_value=1,
-                        max_value=30,
-                        value=7,
-                        help="Number of periods to roll forward"
-                    )
+            pass
     
     # Metrics selection
     with st.expander("📏 Evaluation Metrics", expanded=False):
-        available_metrics = list(METRICS_DEFINITIONS.keys())
-        config['selected_metrics'] = st.multiselect(
-            "Select Evaluation Metrics",
-            options=available_metrics,
-            default=['MAPE', 'MAE', 'RMSE'],
-            help="Metrics to calculate for model evaluation"
-        )
-        
-        # Show metric descriptions
-        for metric in config['selected_metrics']:
-            if metric in METRICS_DEFINITIONS:
-                st.info(f"**{metric}**: {METRICS_DEFINITIONS[metric]}")
-    
-    return config
+        pass
+
 
 def render_output_config_section() -> Dict[str, Any]:
     """
