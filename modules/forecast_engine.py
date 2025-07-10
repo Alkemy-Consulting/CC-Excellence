@@ -12,63 +12,368 @@ import warnings
 warnings.filterwarnings('ignore')
 
 try:
-    from .prophet_enhanced import run_prophet_forecast
-    from .arima_enhanced import run_arima_forecast  
+    from .prophet_enhanced import run_prophet_model
+    from .arima_enhanced import run_arima_model  
     from .sarima_enhanced import run_sarima_forecast
     from .holtwinters_enhanced import run_holtwinters_forecast
-    from .config import MODEL_LABELS, ERROR_MESSAGES
-except ImportError as e:
-    st.error(f"Error importing enhanced modules: {e}")
-
-
-def run_enhanced_forecast(
-    data: pd.DataFrame,
-    date_column: str,
-    target_column: str,
-    model_type: str,
-    model_config: Dict[str, Any],
-    forecast_config: Dict[str, Any]
-) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, go.Figure]]:
-    """
-    Unified interface for running enhanced forecasting models.
-    
-    Args:
-        data: Input DataFrame with date and target columns
-        date_column: Name of the date column
-        target_column: Name of the target variable column
-        model_type: Type of model to run ('Prophet', 'ARIMA', 'SARIMA', 'Holt-Winters')
-        model_config: Model-specific configuration parameters
-        forecast_config: Forecast configuration (periods, confidence interval, etc.)
+    ENHANCED_MODELS_AVAILABLE = True
+except ImportError:
+    try:
+        # Fallback for direct execution
+        from prophet_enhanced import run_prophet_model
+        from arima_enhanced import run_arima_model  
+        from sarima_enhanced import run_sarima_forecast
+        from holtwinters_enhanced import run_holtwinters_forecast
+        ENHANCED_MODELS_AVAILABLE = True
+    except ImportError as e:
+        st.warning(f"⚠️ Some enhanced modules unavailable: {e}")
+        ENHANCED_MODELS_AVAILABLE = False
         
-    Returns:
-        Tuple of (forecast_df, metrics, plots)
+        # Create placeholder functions to prevent crashes
+        def run_prophet_model(*args, **kwargs):
+            st.error("Prophet enhanced module not available")
+            return None
+            
+        def run_arima_model(*args, **kwargs):
+            st.error("ARIMA enhanced module not available")
+            return None
+            
+        def run_sarima_forecast(*args, **kwargs):
+            st.error("SARIMA enhanced module not available")
+            return pd.DataFrame(), {}, {}
+            
+        def run_holtwinters_forecast(*args, **kwargs):
+            st.error("Holt-Winters enhanced module not available")
+            return pd.DataFrame(), {}, {}
+
+
+# Wrapper functions to match expected interface
+def run_prophet_forecast(data: pd.DataFrame, date_col: str, target_col: str, 
+                        model_config: Dict[str, Any], base_config: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, Any]]:
+    """
+    Wrapper function for Prophet to match forecast engine interface.
     """
     try:
-        # Prepare common configuration
-        config = {
-            'date_column': date_column,
-            'target_column': target_column,
-            'forecast_periods': forecast_config.get('forecast_periods', 30),
-            'confidence_interval': forecast_config.get('confidence_interval', 0.95),
-            'train_size': forecast_config.get('train_size', 0.8),
-            **model_config
+        # Prepare data for Prophet
+        prophet_df = data.copy()
+        prophet_df['ds'] = pd.to_datetime(prophet_df[date_col])
+        prophet_df['y'] = prophet_df[target_col]
+        prophet_df = prophet_df[['ds', 'y']].copy()
+        
+        # Simple Prophet model creation
+        from prophet import Prophet
+        
+        # Extract Prophet parameters
+        model_params = {
+            'seasonality_mode': model_config.get('seasonality_mode', 'additive'),
+            'yearly_seasonality': model_config.get('yearly_seasonality', True),
+            'weekly_seasonality': model_config.get('weekly_seasonality', True),
+            'daily_seasonality': model_config.get('daily_seasonality', False),
+            'changepoint_prior_scale': model_config.get('changepoint_prior_scale', 0.05),
+            'seasonality_prior_scale': model_config.get('seasonality_prior_scale', 10.0),
         }
         
-        # Route to appropriate model
-        if model_type == "Prophet":
-            return run_prophet_forecast(data, config)
-        elif model_type == "ARIMA":
-            return run_arima_forecast(data, config)
-        elif model_type == "SARIMA":
-            return run_sarima_forecast(data, config)
-        elif model_type == "Holt-Winters":
-            return run_holtwinters_forecast(data, config)
+        # Create and fit Prophet model
+        model = Prophet(**model_params)
+        model.fit(prophet_df)
+        
+        # Create future dataframe
+        forecast_periods = base_config.get('forecast_periods', 30)
+        future = model.make_future_dataframe(periods=forecast_periods, freq='D')
+        
+        # Make forecast
+        forecast = model.predict(future)
+        
+        # Get only future predictions
+        forecast_df = forecast.tail(forecast_periods)[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
+        
+        # Calculate basic metrics
+        metrics = {}
+        try:
+            train_forecast = forecast.head(len(prophet_df))
+            actual = prophet_df['y'].values
+            predicted = train_forecast['yhat'].values
+            
+            min_len = min(len(actual), len(predicted))
+            actual = actual[-min_len:]
+            predicted = predicted[-min_len:]
+            
+            from sklearn.metrics import mean_absolute_error, mean_squared_error
+            
+            metrics['train_mae'] = mean_absolute_error(actual, predicted)
+            metrics['train_rmse'] = np.sqrt(mean_squared_error(actual, predicted))
+            
+            non_zero_mask = actual != 0
+            if np.any(non_zero_mask):
+                metrics['train_mape'] = np.mean(np.abs((actual[non_zero_mask] - predicted[non_zero_mask]) / actual[non_zero_mask]))
+            
+        except Exception:
+            pass
+        
+        # Create basic visualization
+        plots = {}
+        try:
+            fig = go.Figure()
+            
+            fig.add_trace(go.Scatter(
+                x=prophet_df['ds'],
+                y=prophet_df['y'],
+                mode='lines',
+                name='Historical',
+                line=dict(color='blue')
+            ))
+            
+            fig.add_trace(go.Scatter(
+                x=forecast_df['ds'],
+                y=forecast_df['yhat'],
+                mode='lines',
+                name='Forecast',
+                line=dict(color='red')
+            ))
+            
+            fig.add_trace(go.Scatter(
+                x=forecast_df['ds'],
+                y=forecast_df['yhat_upper'],
+                mode='lines',
+                line=dict(width=0),
+                showlegend=False
+            ))
+            
+            fig.add_trace(go.Scatter(
+                x=forecast_df['ds'],
+                y=forecast_df['yhat_lower'],
+                mode='lines',
+                line=dict(width=0),
+                fill='tonexty',
+                fillcolor='rgba(255,0,0,0.2)',
+                name='Confidence Interval'
+            ))
+            
+            fig.update_layout(
+                title='Prophet Forecast',
+                xaxis_title='Date',
+                yaxis_title='Value',
+                hovermode='x unified'
+            )
+            
+            plots['forecast'] = fig
+            
+        except Exception:
+            pass
+        
+        return forecast_df, metrics, plots
+        
+    except Exception as e:
+        st.error(f"Prophet forecast error: {str(e)}")
+        return pd.DataFrame(), {}, {}
+
+
+def run_arima_forecast(data: pd.DataFrame, date_col: str, target_col: str,
+                      model_config: Dict[str, Any], base_config: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, Any]]:
+    """
+    Wrapper function for ARIMA to match forecast engine interface.
+    """
+    try:
+        # Prepare data
+        ts_data = data.copy()
+        ts_data[date_col] = pd.to_datetime(ts_data[date_col])
+        ts_data = ts_data.sort_values(date_col)
+        
+        series = pd.Series(
+            ts_data[target_col].values,
+            index=pd.to_datetime(ts_data[date_col])
+        )
+        
+        if series.isnull().any():
+            series = series.interpolate(method='linear')
+        
+        try:
+            from statsmodels.tsa.arima.model import ARIMA
+            
+            p = model_config.get('p', 1)
+            d = model_config.get('d', 1) 
+            q = model_config.get('q', 1)
+            
+            auto_order = model_config.get('auto_order', True)
+            if auto_order:
+                try:
+                    from pmdarima import auto_arima
+                    auto_model = auto_arima(
+                        series, 
+                        start_p=0, start_q=0,
+                        max_p=3, max_q=3,
+                        seasonal=False,
+                        stepwise=True,
+                        suppress_warnings=True,
+                        error_action='ignore'
+                    )
+                    p, d, q = auto_model.order
+                except Exception:
+                    pass
+            
+            model = ARIMA(series, order=(p, d, q))
+            fitted_model = model.fit()
+            
+            forecast_periods = base_config.get('forecast_periods', 30)
+            forecast_result = fitted_model.forecast(steps=forecast_periods, alpha=0.05)
+            forecast_values = forecast_result
+            
+            try:
+                forecast_ci = fitted_model.get_forecast(steps=forecast_periods).conf_int()
+                conf_lower = forecast_ci.iloc[:, 0].values
+                conf_upper = forecast_ci.iloc[:, 1].values
+            except Exception:
+                residuals_std = np.std(fitted_model.resid)
+                conf_lower = forecast_values - 1.96 * residuals_std
+                conf_upper = forecast_values + 1.96 * residuals_std
+            
+            last_date = series.index[-1]
+            forecast_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_periods, freq='D')
+            
+            forecast_df = pd.DataFrame({
+                'ds': forecast_dates,
+                'yhat': forecast_values,
+                'yhat_lower': conf_lower,
+                'yhat_upper': conf_upper
+            })
+            
+            metrics = {
+                'aic': fitted_model.aic,
+                'bic': fitted_model.bic,
+                'order': (p, d, q)
+            }
+            
+            try:
+                from sklearn.metrics import mean_absolute_error, mean_squared_error
+                fitted_values = fitted_model.fittedvalues
+                actual_values = series.values
+                
+                min_len = min(len(actual_values), len(fitted_values))
+                actual_aligned = actual_values[-min_len:]
+                fitted_aligned = fitted_values[-min_len:]
+                
+                metrics.update({
+                    'train_mae': mean_absolute_error(actual_aligned, fitted_aligned),
+                    'train_rmse': np.sqrt(mean_squared_error(actual_aligned, fitted_aligned))
+                })
+                
+                non_zero_mask = actual_aligned != 0
+                if np.any(non_zero_mask):
+                    metrics['train_mape'] = np.mean(np.abs((actual_aligned[non_zero_mask] - fitted_aligned[non_zero_mask]) / actual_aligned[non_zero_mask]))
+                    
+            except Exception:
+                pass
+            
+            plots = {}
+            try:
+                fig = go.Figure()
+                
+                fig.add_trace(go.Scatter(
+                    x=series.index,
+                    y=series.values,
+                    mode='lines',
+                    name='Historical',
+                    line=dict(color='blue')
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=forecast_df['ds'],
+                    y=forecast_df['yhat'],
+                    mode='lines',
+                    name='Forecast',
+                    line=dict(color='red')
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=forecast_df['ds'],
+                    y=forecast_df['yhat_upper'],
+                    mode='lines',
+                    line=dict(width=0),
+                    showlegend=False
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=forecast_df['ds'],
+                    y=forecast_df['yhat_lower'],
+                    mode='lines',
+                    line=dict(width=0),
+                    fill='tonexty',
+                    fillcolor='rgba(255,0,0,0.2)',
+                    name='Confidence Interval'
+                ))
+                
+                fig.update_layout(
+                    title=f'ARIMA({p},{d},{q}) Forecast',
+                    xaxis_title='Date',
+                    yaxis_title='Value',
+                    hovermode='x unified'
+                )
+                
+                plots['forecast'] = fig
+                
+            except Exception:
+                pass
+            
+            return forecast_df, metrics, plots
+            
+        except Exception as e:
+            st.error(f"ARIMA model error: {str(e)}")
+            return pd.DataFrame(), {}, {}
+        
+    except Exception as e:
+        st.error(f"ARIMA forecast error: {str(e)}")
+        return pd.DataFrame(), {}, {}
+
+
+def run_enhanced_forecast(data: pd.DataFrame, date_col: str, target_col: str, 
+                         model_name: str, model_config: Dict[str, Any], 
+                         base_config: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, Any]]:
+    """
+    Enhanced forecast execution with proper state management.
+    """
+    
+    # Validate inputs
+    if data is None or data.empty:
+        raise ValueError("No data provided for forecasting")
+    
+    if date_col not in data.columns or target_col not in data.columns:
+        raise ValueError(f"Required columns not found: {date_col}, {target_col}")
+    
+    # Ensure data is properly formatted
+    data = data.copy()
+    data[date_col] = pd.to_datetime(data[date_col])
+    data = data.sort_values(date_col).reset_index(drop=True)
+    
+    # Remove any duplicate dates
+    data = data.drop_duplicates(subset=[date_col], keep='last')
+    
+    # Handle missing values
+    data[target_col] = data[target_col].fillna(method='ffill').fillna(method='bfill')
+    
+    try:
+        # Route to appropriate model with error handling
+        if model_name.lower() == 'prophet':
+            return run_prophet_forecast(data, date_col, target_col, model_config, base_config)
+        elif model_name.lower() == 'arima':
+            return run_arima_forecast(data, date_col, target_col, model_config, base_config)
+        elif model_name.lower() == 'sarima':
+            return run_sarima_forecast(data, model_config)
+        elif model_name.lower() == 'holt-winters':
+            return run_holtwinters_forecast(data, model_config)
         else:
-            raise ValueError(f"Unsupported model type: {model_type}")
+            raise ValueError(f"Unknown model: {model_name}")
             
     except Exception as e:
-        st.error(f"Error in {model_type} forecasting: {str(e)}")
-        return pd.DataFrame(), {}, {}
+        # Return empty results with error information
+        empty_df = pd.DataFrame()
+        error_metrics = {
+            'error': str(e),
+            'model': model_name,
+            'status': 'failed'
+        }
+        empty_plots = {}
+        
+        return empty_df, error_metrics, empty_plots
 
 
 def run_auto_select_forecast(
@@ -80,16 +385,6 @@ def run_auto_select_forecast(
 ) -> Tuple[str, pd.DataFrame, Dict[str, Any], Dict[str, go.Figure]]:
     """
     Run multiple models and select the best performer automatically.
-    
-    Args:
-        data: Input DataFrame
-        date_column: Name of the date column
-        target_column: Name of the target variable column
-        model_configs: Dictionary of model configurations
-        forecast_config: Forecast configuration
-        
-    Returns:
-        Tuple of (best_model_name, forecast_df, metrics, plots)
     """
     try:
         models_to_test = ['Prophet', 'ARIMA', 'SARIMA', 'Holt-Winters']
@@ -149,8 +444,8 @@ def run_auto_select_forecast(
                 'Model': model,
                 'Score': f"{results['score']:.4f}",
                 'AIC': f"{metrics.get('aic', 'N/A'):.4f}" if isinstance(metrics.get('aic'), (int, float)) else 'N/A',
-                'RMSE': f"{metrics.get('val_rmse', metrics.get('train_rmse', 'N/A')):.4f}" if isinstance(metrics.get('val_rmse', metrics.get('train_rmse')), (int, float)) else 'N/A',
-                'MAPE': f"{metrics.get('val_mape', metrics.get('train_mape', 'N/A')):.2%}" if isinstance(metrics.get('val_mape', metrics.get('train_mape')), (int, float)) else 'N/A',
+                'RMSE': f"{metrics.get('train_rmse', 'N/A'):.4f}" if isinstance(metrics.get('train_rmse'), (int, float)) else 'N/A',
+                'MAPE': f"{metrics.get('train_mape', 'N/A'):.2%}" if isinstance(metrics.get('train_mape'), (int, float)) else 'N/A',
                 'Status': '🏆 Best' if model == best_model else '✅ Good'
             })
         
@@ -175,12 +470,6 @@ def calculate_model_score(metrics: Dict[str, Any]) -> float:
     """
     Calculate a composite score for model comparison.
     Lower scores are better.
-    
-    Args:
-        metrics: Dictionary of model metrics
-        
-    Returns:
-        Composite score (lower is better)
     """
     try:
         score = 0.0
@@ -191,14 +480,14 @@ def calculate_model_score(metrics: Dict[str, Any]) -> float:
             score += 0.3 * metrics['aic']
             weight_sum += 0.3
         
-        # Validation RMSE (lower is better) - weight: 0.4
-        rmse = metrics.get('val_rmse', metrics.get('train_rmse'))
+        # Training RMSE (lower is better) - weight: 0.4
+        rmse = metrics.get('train_rmse')
         if rmse is not None and isinstance(rmse, (int, float)) and not np.isnan(rmse):
             score += 0.4 * rmse
             weight_sum += 0.4
         
-        # Validation MAPE (lower is better) - weight: 0.3
-        mape = metrics.get('val_mape', metrics.get('train_mape'))
+        # Training MAPE (lower is better) - weight: 0.3
+        mape = metrics.get('train_mape')
         if mape is not None and isinstance(mape, (int, float)) and not np.isnan(mape):
             score += 0.3 * mape * 100  # Convert to percentage
             weight_sum += 0.3
@@ -224,19 +513,12 @@ def display_forecast_results(
 ):
     """
     Display comprehensive forecast results with visualizations and metrics.
-    
-    Args:
-        model_name: Name of the model used
-        forecast_df: Forecast results DataFrame
-        metrics: Model performance metrics
-        plots: Dictionary of plot figures
-        show_diagnostics: Whether to show diagnostic plots
     """
     try:
         st.subheader(f"📈 {model_name} Forecast Results")
         
         # Tabs for different views
-        tab1, tab2, tab3, tab4 = st.tabs(["📊 Forecast", "📋 Metrics", "🔍 Diagnostics", "📑 Export"])
+        tab1, tab2, tab3 = st.tabs(["📊 Forecast", "📋 Metrics", "📑 Export"])
         
         with tab1:
             # Main forecast plot
@@ -264,7 +546,7 @@ def display_forecast_results(
             
             if metrics:
                 # Create metrics columns
-                col1, col2, col3 = st.columns(3)
+                col1, col2 = st.columns(2)
                 
                 # Training metrics
                 with col1:
@@ -276,25 +558,15 @@ def display_forecast_results(
                     if 'train_mape' in metrics:
                         st.metric("MAPE", f"{metrics['train_mape']:.2%}")
                 
-                # Validation metrics
-                with col2:
-                    st.markdown("**Validation Metrics**")
-                    if 'val_mae' in metrics:
-                        st.metric("MAE", f"{metrics['val_mae']:.4f}")
-                    if 'val_rmse' in metrics:
-                        st.metric("RMSE", f"{metrics['val_rmse']:.4f}")
-                    if 'val_mape' in metrics:
-                        st.metric("MAPE", f"{metrics['val_mape']:.2%}")
-                
                 # Information criteria
-                with col3:
+                with col2:
                     st.markdown("**Information Criteria**")
                     if 'aic' in metrics:
                         st.metric("AIC", f"{metrics['aic']:.4f}")
                     if 'bic' in metrics:
                         st.metric("BIC", f"{metrics['bic']:.4f}")
-                    if 'aicc' in metrics:
-                        st.metric("AICc", f"{metrics['aicc']:.4f}")
+                    if 'order' in metrics:
+                        st.metric("Model Order", str(metrics['order']))
                 
                 # Full metrics table
                 st.subheader("📋 All Metrics")
@@ -307,38 +579,11 @@ def display_forecast_results(
                 st.warning("No metrics available")
         
         with tab3:
-            # Diagnostic plots
-            if show_diagnostics and plots:
-                st.subheader("🔍 Model Diagnostics")
-                
-                # Residuals analysis
-                if 'residuals' in plots:
-                    st.subheader("📉 Residuals Analysis")
-                    st.plotly_chart(plots['residuals'], use_container_width=True)
-                
-                # Components/decomposition
-                if 'components' in plots:
-                    st.subheader("🔄 Time Series Components")
-                    st.plotly_chart(plots['components'], use_container_width=True)
-                
-                # ACF/PACF for ARIMA/SARIMA
-                if 'acf_pacf' in plots:
-                    st.subheader("📊 Autocorrelation Analysis")
-                    st.plotly_chart(plots['acf_pacf'], use_container_width=True)
-                
-                # Model diagnostics summary
-                if 'diagnostics' in plots:
-                    st.subheader("📋 Diagnostics Summary")
-                    st.plotly_chart(plots['diagnostics'], use_container_width=True)
-            else:
-                st.info("Diagnostic plots not available for this model")
-        
-        with tab4:
             # Export options
             st.subheader("💾 Export Forecast Results")
             
             if not forecast_df.empty:
-                col1, col2, col3 = st.columns(3)
+                col1, col2 = st.columns(2)
                 
                 with col1:
                     # CSV export
@@ -351,22 +596,37 @@ def display_forecast_results(
                     )
                 
                 with col2:
-                    # Excel export with multiple sheets
-                    excel_buffer = create_excel_export(forecast_df, metrics, model_name)
-                    if excel_buffer:
-                        st.download_button(
-                            label="📊 Download Excel",
-                            data=excel_buffer,
-                            file_name=f"{model_name.lower()}_forecast_report.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                
-                with col3:
                     # JSON export for API integration
                     import json
+                    
+                    # Custom JSON serializer for handling timestamps and numpy types
+                    def json_serializer(obj):
+                        if isinstance(obj, pd.Timestamp):
+                            return obj.isoformat()
+                        elif isinstance(obj, np.datetime64):
+                            return pd.Timestamp(obj).isoformat()
+                        elif isinstance(obj, (np.integer, np.floating)):
+                            return float(obj)
+                        elif isinstance(obj, np.ndarray):
+                            return obj.tolist()
+                        elif pd.isna(obj):
+                            return None
+                        return str(obj)
+                    
+                    # Prepare forecast data for JSON serialization
+                    forecast_records = []
+                    for _, row in forecast_df.iterrows():
+                        record = {}
+                        for col, value in row.items():
+                            try:
+                                record[col] = json_serializer(value)
+                            except:
+                                record[col] = str(value)
+                        forecast_records.append(record)
+                    
                     json_data = {
                         'model': model_name,
-                        'forecast': forecast_df.to_dict('records'),
+                        'forecast': forecast_records,
                         'metrics': {k: float(v) if isinstance(v, (int, float)) and not np.isnan(v) else str(v) 
                                   for k, v in metrics.items()},
                         'generated_at': pd.Timestamp.now().isoformat()
@@ -374,7 +634,7 @@ def display_forecast_results(
                     
                     st.download_button(
                         label="📋 Download JSON",
-                        data=json.dumps(json_data, indent=2),
+                        data=json.dumps(json_data, indent=2, default=json_serializer),
                         file_name=f"{model_name.lower()}_forecast.json",
                         mime="application/json"
                     )
@@ -383,40 +643,3 @@ def display_forecast_results(
     
     except Exception as e:
         st.error(f"Error displaying results: {str(e)}")
-
-
-def create_excel_export(forecast_df: pd.DataFrame, metrics: Dict[str, Any], model_name: str) -> bytes:
-    """Create comprehensive Excel export with multiple sheets."""
-    try:
-        import io
-        from openpyxl import Workbook
-        from openpyxl.utils.dataframe import dataframe_to_rows
-        from openpyxl.styles import Font, PatternFill
-        
-        buffer = io.BytesIO()
-        
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            # Forecast data
-            forecast_df.to_excel(writer, sheet_name='Forecast', index=False)
-            
-            # Metrics
-            if metrics:
-                metrics_df = pd.DataFrame([
-                    {"Metric": k, "Value": v} for k, v in metrics.items()
-                ])
-                metrics_df.to_excel(writer, sheet_name='Metrics', index=False)
-            
-            # Summary sheet
-            summary_data = {
-                'Model': [model_name],
-                'Forecast_Periods': [len(forecast_df)],
-                'Generated_At': [pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')]
-            }
-            summary_df = pd.DataFrame(summary_data)
-            summary_df.to_excel(writer, sheet_name='Summary', index=False)
-        
-        return buffer.getvalue()
-        
-    except Exception as e:
-        st.warning(f"Error creating Excel export: {str(e)}")
-        return b""

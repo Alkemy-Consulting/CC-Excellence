@@ -15,6 +15,53 @@ from typing import Dict, Any, Optional, Tuple, List, Union
 import warnings
 warnings.filterwarnings('ignore')
 
+# Handle sklearn compatibility issues
+try:
+    from sklearn.utils import check_matplotlib_support
+except ImportError:
+    # Fallback for newer sklearn versions where check_matplotlib_support was removed
+    def check_matplotlib_support(caller_name):
+        """Compatibility fallback for removed sklearn function."""
+        try:
+            import matplotlib.pyplot as plt
+            return True
+        except ImportError:
+            warnings.warn(f"{caller_name} requires matplotlib which is not installed.")
+            return False
+    
+    # Monkey patch for pmdarima compatibility
+    import sklearn.utils
+    sklearn.utils.check_matplotlib_support = check_matplotlib_support
+
+# Handle _check_fit_params compatibility issue
+try:
+    from sklearn.utils.validation import _check_fit_params
+except ImportError:
+    # Fallback for newer sklearn versions where _check_fit_params was removed/moved
+    def _check_fit_params(X, fit_params, indices=None):
+        """Compatibility fallback for removed sklearn function."""
+        if fit_params is None:
+            return {}
+        
+        fit_params_validated = {}
+        for key, value in fit_params.items():
+            if hasattr(value, '__len__') and hasattr(value, '__getitem__'):
+                if indices is not None:
+                    try:
+                        fit_params_validated[key] = value[indices]
+                    except (IndexError, TypeError):
+                        fit_params_validated[key] = value
+                else:
+                    fit_params_validated[key] = value
+            else:
+                fit_params_validated[key] = value
+        
+        return fit_params_validated
+    
+    # Monkey patch for pmdarima compatibility
+    import sklearn.utils.validation
+    sklearn.utils.validation._check_fit_params = _check_fit_params
+
 try:
     import pmdarima as pm
     from pmdarima import auto_arima
@@ -28,14 +75,38 @@ try:
     from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
     import joblib
     import io
+    SARIMA_AVAILABLE = True
 except ImportError as e:
-    st.error(f"Missing required packages for SARIMA: {e}")
-    st.stop()
+    # Better error handling - don't use st.error during import
+    import warnings
+    warnings.warn(f"Missing required packages for SARIMA: {e}")
+    SARIMA_AVAILABLE = False
+except Exception as e:
+    # Catch any other errors
+    import warnings
+    warnings.warn(f"Error importing SARIMA dependencies: {e}")
+    SARIMA_AVAILABLE = False
 
-from .config import (
-    MODEL_LABELS, SARIMA_DEFAULTS, FORECAST_DEFAULTS,
-    VISUALIZATION_CONFIG, ERROR_MESSAGES
-)
+try:
+    from .config import (
+        MODEL_LABELS, SARIMA_DEFAULTS, FORECAST_DEFAULTS,
+        VISUALIZATION_CONFIG, ERROR_MESSAGES
+    )
+except ImportError:
+    try:
+        from modules.config import (
+            MODEL_LABELS, SARIMA_DEFAULTS, FORECAST_DEFAULTS,
+            VISUALIZATION_CONFIG, ERROR_MESSAGES
+        )
+    except ImportError:
+        # Fallback - define minimal config
+        import warnings
+        warnings.warn("Could not import config, using fallback configuration")
+        MODEL_LABELS = {'sarima': 'SARIMA'}
+        SARIMA_DEFAULTS = {'p': 1, 'd': 1, 'q': 1, 'P': 1, 'D': 1, 'Q': 1}
+        FORECAST_DEFAULTS = {'periods': 30, 'confidence_interval': 0.95}
+        VISUALIZATION_CONFIG = {'height': 500}
+        ERROR_MESSAGES = {'no_data': 'No data provided'}
 
 
 class SARIMAEnhanced:
@@ -790,6 +861,11 @@ def run_sarima_forecast(data: pd.DataFrame, config: Dict[str, Any]) -> Tuple[pd.
         Tuple of (forecast_df, metrics, plots)
     """
     try:
+        # Check if SARIMA dependencies are available
+        if not SARIMA_AVAILABLE:
+            st.error("❌ SARIMA dependencies are not available. Please install required packages.")
+            return pd.DataFrame(), {}, {}
+        
         # Initialize model
         model = SARIMAEnhanced()
         

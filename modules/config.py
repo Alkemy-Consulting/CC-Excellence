@@ -92,34 +92,60 @@ PROPHET_DEFAULTS = {
     'custom_seasonalities': []
 }
 
-ARIMA_DEFAULTS = {
-    'p': 1,
-    'd': 1, 
-    'q': 0,
-    'auto_arima': True,
-    'max_p': 5,
-    'max_d': 2,
-    'max_q': 5,
-    'information_criterion': 'aic',
-    'stepwise': True,
-    'suppress_warnings': True,
-    'test': 'adf',
-    'seasonal_test': 'ocsb',
-    'error_action': 'ignore'
+# Model labels and configurations
+MODEL_LABELS = {
+    'prophet': 'Prophet',
+    'arima': 'ARIMA',
+    'sarima': 'SARIMA', 
+    'holtwinters': 'Holt-Winters'
 }
 
+# SARIMA default parameters
 SARIMA_DEFAULTS = {
-    'p': 1, 'd': 1, 'q': 0,
-    'P': 1, 'D': 1, 'Q': 0,
-    's': 12,
-    'auto_sarima': True,
-    'max_p': 3,
-    'max_d': 2,
-    'max_q': 3,
-    'max_P': 2,
-    'max_D': 1,
-    'max_Q': 2,
-    'seasonal_period': 12
+    'p': 1,
+    'd': 1, 
+    'q': 1,
+    'P': 1,
+    'D': 1,
+    'Q': 1,
+    'seasonal_periods': 12,
+    'auto_tune': True
+}
+
+# ARIMA default parameters
+ARIMA_DEFAULTS = {
+    'p': 1,
+    'd': 1,
+    'q': 1,
+    'auto_tune': True
+}
+
+# Forecast default parameters
+FORECAST_DEFAULTS = {
+    'periods': 30,
+    'confidence_interval': 0.95,
+    'train_size': 0.8
+}
+
+# Visualization configuration
+VISUALIZATION_CONFIG = {
+    'height': 500,
+    'width': 800,
+    'colors': {
+        'historical': 'blue',
+        'forecast': 'red',
+        'confidence': 'rgba(255,0,0,0.2)'
+    }
+}
+
+# Error messages
+ERROR_MESSAGES = {
+    'no_data': 'No data provided for forecasting',
+    'insufficient_data': 'Insufficient data points for forecasting',
+    'invalid_date_column': 'Invalid or missing date column',
+    'invalid_target_column': 'Invalid or missing target column',
+    'model_fit_failed': 'Model fitting failed',
+    'forecast_failed': 'Forecast generation failed'
 }
 
 HOLT_WINTERS_DEFAULTS = {

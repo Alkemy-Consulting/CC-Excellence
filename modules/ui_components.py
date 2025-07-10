@@ -11,8 +11,12 @@ import plotly.express as px
 from typing import Dict, List, Tuple, Optional, Any
 from datetime import datetime, timedelta
 
-from .config import *
-from .data_utils import *
+try:
+    from .config import *
+    from .data_utils import *
+except ImportError:
+    from config import *
+    from data_utils import *
 
 def render_data_upload_section() -> Tuple[Optional[pd.DataFrame], Optional[str], Optional[str], Dict[str, Any]]:
     """
@@ -48,39 +52,32 @@ def render_data_upload_section() -> Tuple[Optional[pd.DataFrame], Optional[str],
         
     else:  # Upload file
         with st.expander("📂 File Upload Configuration", expanded=True):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # File format detection
-                uploaded_file = st.file_uploader(
-                    "Choose a CSV or Excel file",
-                    type=['csv', 'xlsx', 'xls'],
-                    help="Upload your time series data file"
-                )
-                
-            with col2:
-                if uploaded_file:
-                    file_format = detect_file_format(uploaded_file)
-                    st.success(f"✅ Detected format: {file_format.upper()}")
+            # File format detection
+            uploaded_file = st.file_uploader(
+                "Choose a CSV or Excel file",
+                type=['csv', 'xlsx', 'xls'],
+                help="Upload your time series data file"
+            )
+            if uploaded_file:
+                file_format = detect_file_format(uploaded_file)
+                st.success(f"✅ Detected format: {file_format.upper()}")
             
             # Format-specific options
             if uploaded_file:
                 file_format = detect_file_format(uploaded_file)
                 
                 if file_format == 'csv':
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        delimiter = st.selectbox(
-                            "CSV Delimiter",
-                            [",", ";", "|", "\t"],
-                            help="Character that separates columns in your CSV file"
-                        )
-                    with col2:
-                        encoding = st.selectbox(
-                            "File Encoding",
-                            ["utf-8", "latin-1", "cp1252"],
-                            help="Text encoding of your CSV file"
-                        )
+                    delimiter = st.selectbox(
+                        "CSV Delimiter",
+                        [",", ";", "|", "\t"],
+                        help="Character that separates columns in your CSV file"
+                    )
+                    
+                    encoding = st.selectbox(
+                        "File Encoding",
+                        ["utf-8", "latin-1", "cp1252"],
+                        help="Text encoding of your CSV file"
+                    )
                 else:
                     delimiter = ","
                     encoding = "utf-8"
@@ -167,36 +164,36 @@ def render_data_preview_section(df: pd.DataFrame, date_col: str, target_col: str
     # Data statistics
     stats = get_data_statistics(df, date_col, target_col)
     
-    # Display statistics in columns
-    col1, col2, col3, col4 = st.columns(4)
+    # Display statistics - organizziamo in gruppi di 2 per la sidebar
+    col1, col2 = st.columns(2)
     with col1:
-        st.metric("📈 Total Records", stats['total_records'])
-        st.metric("📅 Date Range", f"{stats['date_range_days']} days")
+        st.metric("📈 Records", stats['total_records'])
+        st.metric("� Mean", f"{stats['mean_value']:.2f}")
+        st.metric("� Min", f"{stats['min_value']:.2f}")
     with col2:
-        st.metric("📊 Mean Value", f"{stats['mean_value']:.2f}")
-        st.metric("📐 Std Deviation", f"{stats['std_value']:.2f}")
-    with col3:
-        st.metric("📈 Min Value", f"{stats['min_value']:.2f}")
-        st.metric("📈 Max Value", f"{stats['max_value']:.2f}")
-    with col4:
-        st.metric("❌ Missing Values", f"{stats['missing_values']} ({stats['missing_percentage']:.1f}%)")
+        st.metric("� Days", f"{stats['date_range_days']}")
+        st.metric("� Std", f"{stats['std_value']:.2f}")
+        st.metric("📈 Max", f"{stats['max_value']:.2f}")
+    
+    # Missing values e duplicati in verticale
+    if stats['missing_values'] > 0:
+        st.metric("❌ Missing", f"{stats['missing_values']} ({stats['missing_percentage']:.1f}%)")
+    if stats['duplicate_dates'] > 0:
         st.metric("🔄 Duplicates", stats['duplicate_dates'])
     
     # Data preview
     with st.expander("🔍 Data Preview", expanded=False):
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("First 10 rows")
-            st.dataframe(df.head(10))
-        with col2:
-            st.subheader("Last 10 rows") 
-            st.dataframe(df.tail(10))
+        st.subheader("First 5 rows")
+        st.dataframe(df.head(5), height=150)
+        
+        st.subheader("Last 5 rows") 
+        st.dataframe(df.tail(5), height=150)
         
         # Basic time series plot
         st.subheader("📈 Quick Time Series Plot")
         fig = px.line(df.sort_values(date_col), x=date_col, y=target_col, 
                      title=f"Time Series: {target_col}")
-        fig.update_layout(height=400)
+        fig.update_layout(height=300)
         st.plotly_chart(fig, use_container_width=True)
     
     return df
@@ -293,15 +290,13 @@ def render_data_cleaning_section(df: pd.DataFrame, date_col: str, target_col: st
         missing_stats = get_missing_value_stats(df_agg, target_col)
         
         if missing_stats['count'] > 0:
-            col1, col2 = st.columns(2)
-            with col1:
-                st.warning(f"⚠️ Found {missing_stats['count']} missing values ({missing_stats['percentage']:.1f}%)")
-            with col2:
-                missing_method = st.selectbox(
-                    "Missing Value Handling",
-                    MISSING_HANDLING_OPTIONS,
-                    help="How to handle missing values in the target column"
-                )
+            st.warning(f"⚠️ Found {missing_stats['count']} missing values ({missing_stats['percentage']:.1f}%)")
+            
+            missing_method = st.selectbox(
+                "Missing Value Handling",
+                MISSING_HANDLING_OPTIONS,
+                help="How to handle missing values in the target column"
+            )
             
             # Apply missing value handling
             df_agg = handle_missing_values(df_agg, target_col, missing_method)
@@ -354,33 +349,29 @@ def render_data_cleaning_section(df: pd.DataFrame, date_col: str, target_col: st
         }
     
     with st.expander("🔧 Additional Cleaning Options", expanded=False):
-        col1, col2 = st.columns(2)
+        remove_zeros = st.checkbox(
+            "Remove Zero Values",
+            value=False,
+            help="Remove records where target value is exactly zero"
+        )
         
-        with col1:
-            remove_zeros = st.checkbox(
-                "Remove Zero Values",
-                value=False,
-                help="Remove records where target value is exactly zero"
-            )
-            
-            clip_negatives = st.checkbox(
-                "Clip Negative Values",
-                value=True,
-                help="Convert negative values to zero"
-            )
+        clip_negatives = st.checkbox(
+            "Clip Negative Values",
+            value=True,
+            help="Convert negative values to zero"
+        )
         
-        with col2:
-            remove_duplicates = st.checkbox(
-                "Remove Duplicate Dates",
-                value=True,
-                help="Keep only the last value for duplicate dates"
-            )
-            
-            validate_data = st.checkbox(
-                "Data Validation",
-                value=True,
-                help="Perform additional data quality checks"
-            )
+        remove_duplicates = st.checkbox(
+            "Remove Duplicate Dates",
+            value=True,
+            help="Keep only the last value for duplicate dates"
+        )
+        
+        validate_data = st.checkbox(
+            "Data Validation",
+            value=True,
+            help="Perform additional data quality checks"
+        )
         
         # Apply additional cleaning
         if remove_zeros:
@@ -421,13 +412,13 @@ def render_data_cleaning_section(df: pd.DataFrame, date_col: str, target_col: st
     st.subheader("📋 Cleaned Data Summary")
     final_stats = get_data_statistics(df_agg, date_col, target_col)
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
-        st.metric("📊 Final Records", final_stats['total_records'])
+        st.metric("📊 Records", final_stats['total_records'])
+        st.metric("📈 Mean", f"{final_stats['mean_value']:.2f}")
     with col2:
-        st.metric("📅 Date Range", f"{final_stats['date_range_days']} days")
-    with col3:
-        st.metric("📈 Mean Value", f"{final_stats['mean_value']:.2f}")
+        st.metric("📅 Days", f"{final_stats['date_range_days']}")
+        st.metric("� Std", f"{final_stats['std_value']:.2f}")
     
     return df_agg, cleaning_config
 
@@ -477,72 +468,65 @@ def render_prophet_config() -> Dict[str, Any]:
         
         # Core parameters
         st.subheader("🔧 Core Parameters")
-        col1, col2 = st.columns(2)
         
-        with col1:
-            config['seasonality_mode'] = st.selectbox(
-                "Seasonality Mode",
-                ['additive', 'multiplicative'],
-                index=0,
-                help=PARAMETER_TOOLTIPS['prophet']['seasonality_mode']
-            )
-            
-            config['changepoint_prior_scale'] = st.slider(
-                "Trend Flexibility",
-                min_value=0.001,
-                max_value=0.5,
-                value=PROPHET_DEFAULTS['changepoint_prior_scale'],
-                step=0.001,
-                format="%.3f",
-                help=PARAMETER_TOOLTIPS['prophet']['changepoint_prior_scale']
-            )
+        config['seasonality_mode'] = st.selectbox(
+            "Seasonality Mode",
+            ['additive', 'multiplicative'],
+            index=0,
+            help=PARAMETER_TOOLTIPS['prophet']['seasonality_mode']
+        )
         
-        with col2:
-            config['seasonality_prior_scale'] = st.slider(
-                "Seasonality Strength",
-                min_value=0.01,
-                max_value=10.0,
-                value=PROPHET_DEFAULTS['seasonality_prior_scale'],
-                step=0.01,
-                help=PARAMETER_TOOLTIPS['prophet']['seasonality_prior_scale']
-            )
-            
-            config['uncertainty_samples'] = st.number_input(
-                "Uncertainty Samples",
-                min_value=100,
-                max_value=2000,
-                value=PROPHET_DEFAULTS['uncertainty_samples'],
-                step=100,
-                help=PARAMETER_TOOLTIPS['prophet']['uncertainty_samples']
-            )
+        config['changepoint_prior_scale'] = st.slider(
+            "Trend Flexibility",
+            min_value=0.001,
+            max_value=0.5,
+            value=PROPHET_DEFAULTS['changepoint_prior_scale'],
+            step=0.001,
+            format="%.3f",
+            help=PARAMETER_TOOLTIPS['prophet']['changepoint_prior_scale']
+        )
+        
+        config['seasonality_prior_scale'] = st.slider(
+            "Seasonality Strength",
+            min_value=0.01,
+            max_value=10.0,
+            value=PROPHET_DEFAULTS['seasonality_prior_scale'],
+            step=0.01,
+            help=PARAMETER_TOOLTIPS['prophet']['seasonality_prior_scale']
+        )
+        
+        config['uncertainty_samples'] = st.number_input(
+            "Uncertainty Samples",
+            min_value=100,
+            max_value=2000,
+            value=PROPHET_DEFAULTS['uncertainty_samples'],
+            step=100,
+            help=PARAMETER_TOOLTIPS['prophet']['uncertainty_samples']
+        )
         
         # Seasonality configuration
         st.subheader("📊 Seasonality Configuration")
-        col1, col2, col3 = st.columns(3)
         
-        with col1:
-            config['yearly_seasonality'] = st.selectbox(
-                "Yearly Seasonality",
-                ['auto', True, False],
-                index=0,
-                help="Automatically detect or manually set yearly patterns"
-            )
+        config['yearly_seasonality'] = st.selectbox(
+            "Yearly Seasonality",
+            ['auto', True, False],
+            index=0,
+            help="Automatically detect or manually set yearly patterns"
+        )
         
-        with col2:
-            config['weekly_seasonality'] = st.selectbox(
-                "Weekly Seasonality", 
-                ['auto', True, False],
-                index=0,
-                help="Automatically detect or manually set weekly patterns"
-            )
+        config['weekly_seasonality'] = st.selectbox(
+            "Weekly Seasonality", 
+            ['auto', True, False],
+            index=0,
+            help="Automatically detect or manually set weekly patterns"
+        )
         
-        with col3:
-            config['daily_seasonality'] = st.selectbox(
-                "Daily Seasonality",
-                ['auto', True, False],
-                index=0,
-                help="Automatically detect or manually set daily patterns"
-            )
+        config['daily_seasonality'] = st.selectbox(
+            "Daily Seasonality",
+            ['auto', True, False],
+            index=0,
+            help="Automatically detect or manually set daily patterns"
+        )
         
         # Custom seasonalities
         st.subheader("🔄 Custom Seasonalities")
@@ -609,51 +593,44 @@ def render_arima_config() -> Dict[str, Any]:
         
         if not config['auto_arima']:
             st.subheader("📊 Manual ARIMA Parameters")
-            col1, col2, col3 = st.columns(3)
             
-            with col1:
-                config['p'] = st.number_input(
-                    "AR Order (p)",
-                    min_value=0,
-                    max_value=10,
-                    value=ARIMA_DEFAULTS['p'],
-                    help=PARAMETER_TOOLTIPS['arima']['p']
-                )
+            config['p'] = st.number_input(
+                "AR Order (p)",
+                min_value=0,
+                max_value=10,
+                value=ARIMA_DEFAULTS['p'],
+                help=PARAMETER_TOOLTIPS['arima']['p']
+            )
             
-            with col2:
-                config['d'] = st.number_input(
-                    "Differencing (d)",
-                    min_value=0,
-                    max_value=5,
-                    value=ARIMA_DEFAULTS['d'],
-                    help=PARAMETER_TOOLTIPS['arima']['d']
-                )
+            config['d'] = st.number_input(
+                "Differencing (d)",
+                min_value=0,
+                max_value=5,
+                value=ARIMA_DEFAULTS['d'],
+                help=PARAMETER_TOOLTIPS['arima']['d']
+            )
             
-            with col3:
-                config['q'] = st.number_input(
-                    "MA Order (q)",
-                    min_value=0,
-                    max_value=10,
-                    value=ARIMA_DEFAULTS['q'],
-                    help=PARAMETER_TOOLTIPS['arima']['q']
-                )
+            config['q'] = st.number_input(
+                "MA Order (q)",
+                min_value=0,
+                max_value=10,
+                value=ARIMA_DEFAULTS['q'],
+                help=PARAMETER_TOOLTIPS['arima']['q']
+            )
         else:
             st.subheader("🔍 Auto-ARIMA Configuration")
-            col1, col2 = st.columns(2)
             
-            with col1:
-                config['max_p'] = st.number_input("Max AR Order", min_value=1, max_value=10, value=5)
-                config['max_d'] = st.number_input("Max Differencing", min_value=1, max_value=3, value=2)
-                config['max_q'] = st.number_input("Max MA Order", min_value=1, max_value=10, value=5)
+            config['max_p'] = st.number_input("Max AR Order", min_value=1, max_value=10, value=5)
+            config['max_d'] = st.number_input("Max Differencing", min_value=1, max_value=3, value=2)
+            config['max_q'] = st.number_input("Max MA Order", min_value=1, max_value=10, value=5)
             
-            with col2:
-                config['information_criterion'] = st.selectbox(
-                    "Information Criterion",
-                    ['aic', 'bic', 'hqic'],
-                    help="Criterion for model selection"
-                )
-                config['stepwise'] = st.checkbox("Stepwise Search", value=True)
-                config['suppress_warnings'] = st.checkbox("Suppress Warnings", value=True)
+            config['information_criterion'] = st.selectbox(
+                "Information Criterion",
+                ['aic', 'bic', 'hqic'],
+                help="Criterion for model selection"
+            )
+            config['stepwise'] = st.checkbox("Stepwise Search", value=True)
+            config['suppress_warnings'] = st.checkbox("Suppress Warnings", value=True)
         
         # Advanced options
         with st.expander("🔬 Advanced Options", expanded=False):
@@ -690,40 +667,28 @@ def render_sarima_config() -> Dict[str, Any]:
         if not config['auto_sarima']:
             # Non-seasonal parameters
             st.subheader("📊 Non-Seasonal Parameters")
-            col1, col2, col3 = st.columns(3)
             
-            with col1:
-                config['p'] = st.number_input("AR (p)", 0, 10, SARIMA_DEFAULTS['p'], key="sarima_p")
-            with col2:
-                config['d'] = st.number_input("Diff (d)", 0, 5, SARIMA_DEFAULTS['d'], key="sarima_d")
-            with col3:
-                config['q'] = st.number_input("MA (q)", 0, 10, SARIMA_DEFAULTS['q'], key="sarima_q")
+            config['p'] = st.number_input("AR (p)", 0, 10, SARIMA_DEFAULTS['p'], key="sarima_p")
+            config['d'] = st.number_input("Diff (d)", 0, 5, SARIMA_DEFAULTS['d'], key="sarima_d")
+            config['q'] = st.number_input("MA (q)", 0, 10, SARIMA_DEFAULTS['q'], key="sarima_q")
             
             # Seasonal parameters
             st.subheader("🔄 Seasonal Parameters")
-            col1, col2, col3, col4 = st.columns(4)
             
-            with col1:
-                config['P'] = st.number_input("Seasonal AR (P)", 0, 10, SARIMA_DEFAULTS['P'], key="sarima_P")
-            with col2:
-                config['D'] = st.number_input("Seasonal Diff (D)", 0, 5, SARIMA_DEFAULTS['D'], key="sarima_D")
-            with col3:
-                config['Q'] = st.number_input("Seasonal MA (Q)", 0, 10, SARIMA_DEFAULTS['Q'], key="sarima_Q")
-            with col4:
-                config['s'] = st.number_input("Season Length (s)", 1, 365, SARIMA_DEFAULTS['s'], key="sarima_s")
+            config['P'] = st.number_input("Seasonal AR (P)", 0, 10, SARIMA_DEFAULTS['P'], key="sarima_P")
+            config['D'] = st.number_input("Seasonal Diff (D)", 0, 5, SARIMA_DEFAULTS['D'], key="sarima_D")
+            config['Q'] = st.number_input("Seasonal MA (Q)", 0, 10, SARIMA_DEFAULTS['Q'], key="sarima_Q")
+            config['s'] = st.number_input("Season Length (s)", 1, 365, SARIMA_DEFAULTS['s'], key="sarima_s")
         else:
             st.subheader("🔍 Auto-SARIMA Configuration")
-            col1, col2 = st.columns(2)
             
-            with col1:
-                config['max_p'] = st.number_input("Max p", 1, 5, 3, key="auto_sarima_max_p")
-                config['max_d'] = st.number_input("Max d", 1, 3, 2, key="auto_sarima_max_d")
-                config['max_q'] = st.number_input("Max q", 1, 5, 3, key="auto_sarima_max_q")
+            config['max_p'] = st.number_input("Max p", 1, 5, 3, key="auto_sarima_max_p")
+            config['max_d'] = st.number_input("Max d", 1, 3, 2, key="auto_sarima_max_d")
+            config['max_q'] = st.number_input("Max q", 1, 5, 3, key="auto_sarima_max_q")
             
-            with col2:
-                config['max_P'] = st.number_input("Max P", 1, 3, 2, key="auto_sarima_max_P")
-                config['max_D'] = st.number_input("Max D", 1, 2, 1, key="auto_sarima_max_D")
-                config['max_Q'] = st.number_input("Max Q", 1, 3, 2, key="auto_sarima_max_Q")
+            config['max_P'] = st.number_input("Max P", 1, 3, 2, key="auto_sarima_max_P")
+            config['max_D'] = st.number_input("Max D", 1, 2, 1, key="auto_sarima_max_D")
+            config['max_Q'] = st.number_input("Max Q", 1, 3, 2, key="auto_sarima_max_Q")
             
             config['seasonal_period'] = st.number_input(
                 "Seasonal Period",
@@ -742,77 +707,69 @@ def render_holtwinters_config() -> Dict[str, Any]:
         
         # Core parameters
         st.subheader("🔧 Core Parameters")
-        col1, col2 = st.columns(2)
         
-        with col1:
-            config['trend'] = st.selectbox(
-                "Trend Type",
-                ['add', 'mul', None],
-                index=0,
-                help=PARAMETER_TOOLTIPS['holt_winters']['trend']
-            )
-            
-            config['seasonal'] = st.selectbox(
-                "Seasonal Type",
-                ['add', 'mul', None],
-                index=0,
-                help=PARAMETER_TOOLTIPS['holt_winters']['seasonal']
-            )
+        config['trend'] = st.selectbox(
+            "Trend Type",
+            ['add', 'mul', None],
+            index=0,
+            help=PARAMETER_TOOLTIPS['holt_winters']['trend']
+        )
         
-        with col2:
-            config['damped_trend'] = st.checkbox(
-                "Damped Trend",
-                value=HOLTWINTERS_DEFAULTS['damped_trend'],
-                help=PARAMETER_TOOLTIPS['holt_winters']['damped_trend']
-            )
-            
-            config['seasonal_periods'] = st.number_input(
-                "Seasonal Periods",
-                min_value=2,
-                max_value=365,
-                value=HOLTWINTERS_DEFAULTS['seasonal_periods'],
-                help=PARAMETER_TOOLTIPS['holt_winters']['seasonal_periods']
-            )
+        config['seasonal'] = st.selectbox(
+            "Seasonal Type",
+            ['add', 'mul', None],
+            index=0,
+            help=PARAMETER_TOOLTIPS['holt_winters']['seasonal']
+        )
+        
+        config['damped_trend'] = st.checkbox(
+            "Damped Trend",
+            value=HOLTWINTERS_DEFAULTS['damped_trend'],
+            help=PARAMETER_TOOLTIPS['holt_winters']['damped_trend']
+        )
+        
+        config['seasonal_periods'] = st.number_input(
+            "Seasonal Periods",
+            min_value=2,
+            max_value=365,
+            value=HOLTWINTERS_DEFAULTS['seasonal_periods'],
+            help=PARAMETER_TOOLTIPS['holt_winters']['seasonal_periods']
+        )
         
         # Smoothing parameters
         st.subheader("📊 Smoothing Parameters")
         use_custom_smoothing = st.checkbox("Custom Smoothing Parameters", value=False)
         
         if use_custom_smoothing:
-            col1, col2, col3 = st.columns(3)
+            config['smoothing_level'] = st.slider(
+                "Alpha (Level)",
+                0.0, 1.0,
+                HOLTWINTERS_DEFAULTS['smoothing_level'],
+                0.01,
+                help="Smoothing parameter for level"
+            )
             
-            with col1:
-                config['smoothing_level'] = st.slider(
-                    "Alpha (Level)",
+            if config['trend'] is not None:
+                config['smoothing_trend'] = st.slider(
+                    "Beta (Trend)",
                     0.0, 1.0,
-                    HOLTWINTERS_DEFAULTS['smoothing_level'],
+                    HOLTWINTERS_DEFAULTS['smoothing_trend'],
                     0.01,
-                    help="Smoothing parameter for level"
+                    help="Smoothing parameter for trend"
                 )
+            else:
+                config['smoothing_trend'] = None
             
-            with col2:
-                if config['trend'] is not None:
-                    config['smoothing_trend'] = st.slider(
-                        "Beta (Trend)",
-                        0.0, 1.0,
-                        HOLTWINTERS_DEFAULTS['smoothing_trend'],
-                        0.01,
-                        help="Smoothing parameter for trend"
-                    )
-                else:
-                    config['smoothing_trend'] = None
-            
-            with col3:
-                if config['seasonal'] is not None:
-                    config['smoothing_seasonal'] = st.slider(
-                        "Gamma (Seasonal)",
-                        0.0, 1.0,
-                        HOLTWINTERS_DEFAULTS['smoothing_seasonal'],
-                        0.01,
-                        help="Smoothing parameter for seasonal"
-                    )
-                else:
-                    config['smoothing_seasonal'] = None
+            if config['seasonal'] is not None:
+                config['smoothing_seasonal'] = st.slider(
+                    "Gamma (Seasonal)",
+                    0.0, 1.0,
+                    HOLTWINTERS_DEFAULTS['smoothing_seasonal'],
+                    0.01,
+                    help="Smoothing parameter for seasonal"
+                )
+            else:
+                config['smoothing_seasonal'] = None
         else:
             config['smoothing_level'] = None
             config['smoothing_trend'] = None
@@ -977,26 +934,22 @@ def render_forecast_config_section() -> Dict[str, Any]:
     
     forecast_config = {}
     
-    col1, col2 = st.columns(2)
+    forecast_config['make_forecast'] = st.checkbox(
+        "Generate Future Forecast",
+        value=True,
+        help="Create predictions for future time periods"
+    )
     
-    with col1:
-        forecast_config['make_forecast'] = st.checkbox(
-            "Generate Future Forecast",
-            value=True,
-            help="Create predictions for future time periods"
+    if forecast_config['make_forecast']:
+        forecast_config['horizon'] = st.number_input(
+            "Forecast Horizon",
+            min_value=1,
+            max_value=365,
+            value=DEFAULT_HORIZON,
+            help="Number of future periods to forecast"
         )
-    
-    with col2:
-        if forecast_config['make_forecast']:
-            forecast_config['horizon'] = st.number_input(
-                "Forecast Horizon",
-                min_value=1,
-                max_value=365,
-                value=DEFAULT_HORIZON,
-                help="Number of future periods to forecast"
-            )
-        else:
-            forecast_config['horizon'] = 0
+    else:
+        forecast_config['horizon'] = 0
     
     # Confidence intervals
     with st.expander("📊 Confidence Intervals", expanded=True):
@@ -1007,25 +960,22 @@ def render_forecast_config_section() -> Dict[str, Any]:
         )
         
         if forecast_config['include_confidence']:
-            col1, col2 = st.columns(2)
-            with col1:
-                forecast_config['confidence_level'] = st.slider(
-                    "Confidence Level",
-                    min_value=0.5,
-                    max_value=0.99,
-                    value=DEFAULT_CI_LEVEL,
-                    step=0.01,
-                    format="%.2f",
-                    help="Confidence level for prediction intervals"
-                )
+            forecast_config['confidence_level'] = st.slider(
+                "Confidence Level",
+                min_value=0.5,
+                max_value=0.99,
+                value=DEFAULT_CI_LEVEL,
+                step=0.01,
+                format="%.2f",
+                help="Confidence level for prediction intervals"
+            )
             
-            with col2:
-                forecast_config['interval_width'] = st.selectbox(
-                    "Interval Width",
-                    [0.80, 0.90, 0.95, 0.99],
-                    index=0,
-                    help="Width of confidence intervals"
-                )
+            forecast_config['interval_width'] = st.selectbox(
+                "Interval Width",
+                [0.80, 0.90, 0.95, 0.99],
+                index=0,
+                help="Width of confidence intervals"
+            )
     
     # Backtesting configuration
     with st.expander("📈 Backtesting & Validation", expanded=True):

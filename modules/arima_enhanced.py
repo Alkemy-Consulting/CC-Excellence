@@ -16,6 +16,59 @@ from typing import Dict, List, Optional, Any, Tuple
 import warnings
 from datetime import datetime, timedelta
 
+# Handle sklearn compatibility issues
+try:
+    from sklearn.utils import check_matplotlib_support
+except ImportError:
+    # Fallback for newer sklearn versions where check_matplotlib_support was removed
+    def check_matplotlib_support(caller_name):
+        """Compatibility fallback for removed sklearn function."""
+        try:
+            import matplotlib.pyplot as plt
+            return True
+        except ImportError:
+            warnings.warn(f"{caller_name} requires matplotlib which is not installed.")
+            return False
+    
+    # Monkey patch for pmdarima compatibility
+    try:
+        import sklearn.utils
+        sklearn.utils.check_matplotlib_support = check_matplotlib_support
+    except:
+        pass
+
+# Handle _check_fit_params compatibility issue
+try:
+    from sklearn.utils.validation import _check_fit_params
+except ImportError:
+    # Fallback for newer sklearn versions where _check_fit_params was removed/moved
+    def _check_fit_params(X, fit_params, indices=None):
+        """Compatibility fallback for removed sklearn function."""
+        if fit_params is None:
+            return {}
+        
+        fit_params_validated = {}
+        for key, value in fit_params.items():
+            if hasattr(value, '__len__') and hasattr(value, '__getitem__'):
+                if indices is not None:
+                    try:
+                        fit_params_validated[key] = value[indices]
+                    except (IndexError, TypeError):
+                        fit_params_validated[key] = value
+                else:
+                    fit_params_validated[key] = value
+            else:
+                fit_params_validated[key] = value
+        
+        return fit_params_validated
+    
+    # Monkey patch for pmdarima compatibility
+    try:
+        import sklearn.utils.validation
+        sklearn.utils.validation._check_fit_params = _check_fit_params
+    except:
+        pass
+
 try:
     from statsmodels.tsa.arima.model import ARIMA
     from statsmodels.tsa.seasonal import seasonal_decompose

@@ -34,6 +34,8 @@ if 'cleaned_data' not in st.session_state:
     st.session_state.cleaned_data = None
 if 'model_configs' not in st.session_state:
     st.session_state.model_configs = {}
+if 'forecast_config' not in st.session_state:
+    st.session_state.forecast_config = {}
 
 # Main workflow in sidebar
 with st.sidebar:
@@ -62,19 +64,49 @@ with st.sidebar:
         st.markdown("---")
         selected_model, model_configs = render_model_selection_section()
         st.session_state.model_configs = model_configs
+        st.session_state.selected_model = selected_model
         
         # Step 6: Forecast Configuration
         st.markdown("---")
         forecast_config = render_forecast_config_section()
+        st.session_state.forecast_config = forecast_config
         
         # Step 7: Output Configuration
         st.markdown("---")
         output_config = render_output_config_section()
         
-        # Run Forecast Button
+        # Run Forecast Button - FIXED LOGIC
         st.markdown("---")
-        if st.button("🚀 Run Forecast", type="primary", use_container_width=True):
-            st.session_state.run_forecast = True
+        st.subheader("🚀 Execute Forecast")
+        
+        # Check if data is ready
+        if st.session_state.cleaned_data is not None and len(st.session_state.cleaned_data) > 0:
+            # Only enable button if data is available
+            forecast_button = st.button(
+                "🚀 Run Forecast", 
+                type="primary", 
+                use_container_width=True,
+                key="run_forecast_button"
+            )
+            
+            # Handle button click
+            if forecast_button:
+                st.session_state.run_forecast = True
+                st.rerun()
+                
+            # Show current status
+            if st.session_state.get('run_forecast', False):
+                st.success("✅ Forecast ready to execute...")
+            else:
+                st.info("⏳ Configure settings and click to run forecast")
+        else:
+            st.button(
+                "🚀 Run Forecast", 
+                type="primary", 
+                use_container_width=True, 
+                disabled=True
+            )
+            st.warning("⚠️ Please load and clean data first")
         
         # Quick Stats Summary
         if st.session_state.cleaned_data is not None:
@@ -87,7 +119,7 @@ with st.sidebar:
             if final_stats['missing_values'] > 0:
                 st.metric("❌ Missing", f"{final_stats['missing_values']}")
 
-# Main content area
+# Main content area - FIXED STATE MANAGEMENT
 if not st.session_state.data_loaded:
     # Welcome screen
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -119,8 +151,8 @@ if not st.session_state.data_loaded:
         if st.button("🎯 Quick Start with Sample Data", type="primary"):
             st.rerun()
 
-elif st.session_state.data_loaded and 'run_forecast' not in st.session_state:
-    # Data loaded but forecast not run yet
+elif st.session_state.data_loaded and not st.session_state.get('run_forecast', False):
+    # Data loaded but forecast NOT triggered yet - FIXED CONDITION
     st.markdown("## 📊 Data Analysis & Preparation")
     
     if st.session_state.cleaned_data is not None:
@@ -306,38 +338,46 @@ elif st.session_state.data_loaded and 'run_forecast' not in st.session_state:
         st.success("🎯 **Data is ready for forecasting!** Configure your model settings in the sidebar and click 'Run Forecast'")
 
 elif st.session_state.data_loaded and st.session_state.get('run_forecast', False):
-    # Run the forecast
+    # ONLY execute forecast when explicitly triggered - FIXED EXECUTION
     st.markdown("## 🔮 Forecasting Results")
     
-    # Get all necessary variables from session state and sidebar
+    # Get all necessary variables from session state
     df_clean = st.session_state.cleaned_data
     
     if df_clean is not None and len(df_clean) > 0:
-        # Prepare forecast configuration
-        base_config = {
-            'forecast_periods': forecast_config.get('forecast_periods', 30),
-            'confidence_interval': forecast_config.get('confidence_interval', 0.95),
-            'train_size': 0.8
-        }
-        
-        st.markdown("### 🚀 Running Forecast...")
-        
         try:
-            with st.spinner(f"🔄 Running {selected_model} forecast..."):
+            # Get stored configurations
+            selected_model = st.session_state.get('selected_model', 'Prophet')
+            forecast_config = st.session_state.get('forecast_config', {
+                'forecast_periods': 30,
+                'confidence_interval': 0.95
+            })
+            model_configs = st.session_state.get('model_configs', {})
+            
+            # Prepare forecast configuration
+            base_config = {
+                'forecast_periods': forecast_config.get('forecast_periods', 30),
+                'confidence_interval': forecast_config.get('confidence_interval', 0.95),
+                'train_size': 0.8
+            }
+            
+            st.markdown(f"### 🚀 Running {selected_model} Forecast...")
+            
+            with st.spinner(f"🔄 Executing {selected_model} model..."):
                 if selected_model == "Auto-Select":
                     # Run auto-select with model comparison
                     best_model, forecast_df, metrics, plots = run_auto_select_forecast(
-                        df_clean, date_col, target_col, st.session_state.model_configs, base_config
+                        df_clean, date_col, target_col, model_configs, base_config
                     )
                     
-                    if best_model != "None":
+                    if best_model and best_model != "None":
                         display_forecast_results(best_model, forecast_df, metrics, plots)
                     else:
                         st.error("❌ Auto-select failed. No models succeeded.")
                 
                 else:
                     # Run single model
-                    model_config = st.session_state.model_configs.get(selected_model, {})
+                    model_config = model_configs.get(selected_model, {})
                     forecast_df, metrics, plots = run_enhanced_forecast(
                         df_clean, date_col, target_col, selected_model, model_config, base_config
                     )
@@ -357,10 +397,33 @@ elif st.session_state.data_loaded and st.session_state.get('run_forecast', False
     else:
         st.error("❌ No cleaned data available. Please check data preprocessing steps.")
     
-    # Reset forecast trigger
-    if st.button("🔄 Run Another Forecast"):
-        del st.session_state.run_forecast
-        st.rerun()
+    # Reset options and navigation - ENHANCED USER CONTROL
+    st.markdown("---")
+    st.subheader("🔄 Next Actions")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🔄 Run Another Forecast", type="secondary", use_container_width=True):
+            # Clear forecast flag to return to data analysis view
+            if 'run_forecast' in st.session_state:
+                del st.session_state.run_forecast
+            st.rerun()
+    
+    with col2:
+        if st.button("📊 Back to Data Analysis", type="secondary", use_container_width=True):
+            # Clear forecast flag to return to data analysis view
+            if 'run_forecast' in st.session_state:
+                del st.session_state.run_forecast
+            st.rerun()
+    
+    with col3:
+        if st.button("🆕 Load New Data", type="secondary", use_container_width=True):
+            # Clear all session state to start fresh
+            for key in ['run_forecast', 'data_loaded', 'cleaned_data', 'model_configs']:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.rerun()
 
 # Footer
 st.markdown("---")

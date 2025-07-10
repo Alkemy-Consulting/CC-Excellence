@@ -11,10 +11,16 @@ import plotly.express as px
 from typing import Tuple, List, Dict, Optional, Any, Union
 from datetime import datetime, timedelta
 import warnings
-from .config import (
-    DATE_COLUMN_NAMES, VALUE_COLUMN_NAMES, DATE_FORMATS, 
-    SEASONAL_PERIODS_MAP, MISSING_HANDLING_OPTIONS
-)
+try:
+    from .config import (
+        DATE_COLUMN_NAMES, VALUE_COLUMN_NAMES, DATE_FORMATS, 
+        SEASONAL_PERIODS_MAP, MISSING_HANDLING_OPTIONS
+    )
+except ImportError:
+    from modules.config import (
+        DATE_COLUMN_NAMES, VALUE_COLUMN_NAMES, DATE_FORMATS, 
+        SEASONAL_PERIODS_MAP, MISSING_HANDLING_OPTIONS
+    )
 
 def generate_sample_data() -> pd.DataFrame:
     """
@@ -639,3 +645,66 @@ def handle_outliers_data(df: pd.DataFrame, target_col: str, method: str) -> pd.D
         df_clean[target_col] = df_clean[target_col].clip(lower=lower_bound, upper=upper_bound)
     
     return df_clean
+
+
+def detect_date_column(df: pd.DataFrame) -> str:
+    """
+    Auto-detect date column in DataFrame.
+    
+    Args:
+        df: Input DataFrame
+        
+    Returns:
+        str: Name of detected date column
+    """
+    # Check common date column names first
+    for col in df.columns:
+        if col.lower() in ['date', 'ds', 'datetime', 'timestamp', 'time', 'data']:
+            return col
+    
+    # Check by data type
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            return col
+        
+        # Try to parse as date
+        try:
+            pd.to_datetime(df[col].dropna().iloc[:5])
+            return col
+        except (ValueError, TypeError):
+            continue
+    
+    # If no date column found, return first column
+    return df.columns[0] if len(df.columns) > 0 else None
+
+
+def detect_value_column(df: pd.DataFrame, exclude_cols: List[str] = None) -> str:
+    """
+    Auto-detect value/target column in DataFrame.
+    
+    Args:
+        df: Input DataFrame
+        exclude_cols: Columns to exclude from detection
+        
+    Returns:
+        str: Name of detected value column
+    """
+    exclude_cols = exclude_cols or []
+    
+    # Check common value column names
+    for col in df.columns:
+        if col.lower() in ['value', 'y', 'target', 'volume', 'sales', 'count', 'amount']:
+            if col not in exclude_cols:
+                return col
+    
+    # Check by data type (numeric columns)
+    for col in df.columns:
+        if col not in exclude_cols and pd.api.types.is_numeric_dtype(df[col]):
+            return col
+    
+    # Return first non-excluded column
+    for col in df.columns:
+        if col not in exclude_cols:
+            return col
+    
+    return df.columns[0] if len(df.columns) > 0 else None
