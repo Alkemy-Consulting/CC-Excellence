@@ -1,385 +1,337 @@
-import streamlit as st
+from typing import Dict, List, Tuple, Optional, Any
 import pandas as pd
 import numpy as np
-from prophet import Prophet
-from prophet.plot import plot_plotly, plot_components_plotly
-from prophet.diagnostics import cross_validation, performance_metrics
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-import io
+import streamlit as st
+import plotly.graph_objects as go
+import plotly.express as px
+from datetime import datetime, timedelta
 import warnings
-from modules.metrics_module import compute_metrics, compute_all_metrics
+warnings.filterwarnings('ignore')
 
+try:
+    from prophet import Prophet
+    from prophet.diagnostics import cross_validation, performance_metrics
+    PROPHET_AVAILABLE = True
+except ImportError:
+    PROPHET_AVAILABLE = False
+    st.error("Prophet not installed. Please install: pip install prophet")
 
-def build_and_forecast_prophet(df, freq='D', periods=30, use_holidays=False, yearly=True, weekly=False, daily=False, seasonality_mode='additive', changepoint_prior_scale=0.05):
+from .config import PROPHET_DEFAULTS
+
+def run_prophet_forecast(df: pd.DataFrame, date_col: str, target_col: str, 
+                        model_config: Dict[str, Any], base_config: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, Any]]:
     """
-    Costruisce e addestra un modello Prophet con gestione robusta degli errori.
+    Enhanced Prophet forecasting with auto-tuning capabilities
     """
-    # Validazione input
-    if df.empty or len(df) < 2:
-        raise ValueError("Il dataset deve contenere almeno 2 punti dati per Prophet")
+    if not PROPHET_AVAILABLE:
+        return pd.DataFrame(), {}, {}
     
-    # Verifica colonne richieste
-    required_cols = ['ds', 'y']
-    if not all(col in df.columns for col in required_cols):
-        raise ValueError(f"Il DataFrame deve contenere le colonne: {required_cols}")
-    
-    # Validazione dati
-    if df['y'].isna().all():
-        raise ValueError("Tutti i valori target sono NaN")
-    
-    if df['y'].var() == 0:
-        warnings.warn("La serie temporale ha varianza zero. Il modello potrebbe non essere significativo.")
-    
-    holidays = None
-    if use_holidays:
-        try:
-            years = df['ds'].dt.year.unique()
-            # Esempio più realistico con festività multiple
-            holiday_dates = []
-            for year in years:
-                holiday_dates.extend([
-                    f"{year}-01-01",  # Capodanno
-                    f"{year}-12-25",  # Natale
-                    f"{year}-08-15",  # Ferragosto (per Italia)
-                ])
-            holidays = pd.DataFrame({
-                'ds': pd.to_datetime(holiday_dates), 
-                'holiday': 'holiday'
-            })
-        except Exception as e:
-            warnings.warn(f"Errore nella creazione del calendario festività: {e}")
-            holidays = None
-
     try:
-        # Configura Prophet con parametri validati
-        model = Prophet(
-            yearly_seasonality=yearly,
-            weekly_seasonality=weekly,
-            daily_seasonality=daily,
-            seasonality_mode=seasonality_mode,
-            changepoint_prior_scale=max(0.001, min(0.5, changepoint_prior_scale)),  # Limita range
-            holidays=holidays,
-            uncertainty_samples=False  # Disabilita per performance
-        )
-
-        # Sopprimi warning di Prophet se necessario
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            model.fit(df)
+        # Prepare data for Prophet
+        prophet_df = df[[date_col, target_col]].copy()
+        prophet_df.columns = ['ds', 'y']
+        prophet_df = prophet_df.sort_values('ds').reset_index(drop=True)
         
-        future = model.make_future_dataframe(periods=periods, freq=freq)
+        # Check if auto-tuning is enabled
+        if model_config.get('auto_tune', False):
+            st.info("🔍 Starting Prophet auto-tuning...")
+            best_params, tuning_results = auto_tune_prophet(
+                prophet_df, 
+                model_config.get('tuning_horizon', 30),
+                model_config.get('tuning_parallel', 'processes')
+            )
+            
+            # Update model config with best parameters
+            model_config.update(best_params)
+            st.success(f"✅ Auto-tuning completed! Best MAPE: {tuning_results['best_mape']:.3f}")
+        
+        # Initialize Prophet model
+        prophet_params = {
+            'changepoint_prior_scale': model_config.get('changepoint_prior_scale', PROPHET_DEFAULTS['changepoint_prior_scale']),
+            'seasonality_prior_scale': model_config.get('seasonality_prior_scale', PROPHET_DEFAULTS['seasonality_prior_scale']),
+            'seasonality_mode': model_config.get('seasonality_mode', 'additive'),
+            'uncertainty_samples': model_config.get('uncertainty_samples', PROPHET_DEFAULTS['uncertainty_samples']),
+            'yearly_seasonality': model_config.get('yearly_seasonality', 'auto'),
+            'weekly_seasonality': model_config.get('weekly_seasonality', 'auto'),
+            'daily_seasonality': model_config.get('daily_seasonality', 'auto'),
+        }
+        
+        if model_config.get('mcmc_samples', 0) > 0:
+            prophet_params['mcmc_samples'] = model_config['mcmc_samples']
+        
+        model = Prophet(**prophet_params)
+        
+        # Add custom seasonalities
+        for seasonality in model_config.get('custom_seasonalities', []):
+            model.add_seasonality(
+                name=seasonality['name'],
+                period=seasonality['period'],
+                fourier_order=seasonality['fourier_order']
+            )
+        
+        # Add holidays if specified
+        if model_config.get('holidays_country'):
+            import holidays
+            country_holidays = holidays.country_holidays(model_config['holidays_country'])
+            holidays_df = pd.DataFrame([
+                {'ds': date, 'holiday': name}
+                for date, name in country_holidays.items()
+                if prophet_df['ds'].min() <= pd.to_datetime(date) <= prophet_df['ds'].max() + timedelta(days=base_config.get('forecast_periods', 30))
+            ])
+            if not holidays_df.empty:
+                model.add_country_holidays(country_name=model_config['holidays_country'])
+        
+        # Fit the model
+        with st.spinner("🔄 Training Prophet model..."):
+            model.fit(prophet_df)
+        
+        # Create future dataframe
+        future = model.make_future_dataframe(periods=base_config.get('forecast_periods', 30))
+        
+        # Handle logistic growth
+        if model_config.get('growth') == 'logistic':
+            cap_value = model_config.get('cap', prophet_df['y'].max() * 1.2)
+            future['cap'] = cap_value
+            prophet_df['cap'] = cap_value
+            model.fit(prophet_df)  # Refit with cap
+        
+        # Generate forecast
         forecast = model.predict(future)
         
-        return model, forecast
+        # Prepare output DataFrame
+        forecast_df = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
+        forecast_df.columns = [date_col, 'forecast', 'lower_bound', 'upper_bound']
+        
+        # Calculate metrics on training data
+        train_forecast = forecast[:-base_config.get('forecast_periods', 30)]
+        actual_values = prophet_df['y'].values
+        predicted_values = train_forecast['yhat'].values
+        
+        metrics = calculate_forecast_metrics(actual_values, predicted_values)
+        
+        # Create plots
+        plots = create_prophet_plots(model, forecast, prophet_df, base_config.get('forecast_periods', 30))
+        
+        # Add auto-tuning results to plots if available
+        if model_config.get('auto_tune', False) and 'tuning_results' in locals():
+            plots['tuning_results'] = tuning_results
+        
+        return forecast_df, metrics, plots
         
     except Exception as e:
-        raise RuntimeError(f"Errore durante l'addestramento del modello Prophet: {e}")
+        st.error(f"Error in Prophet forecasting: {str(e)}")
+        return pd.DataFrame(), {}, {}
 
-def evaluate_forecast(df, forecast):
+def auto_tune_prophet(df: pd.DataFrame, horizon: int = 30, 
+                     parallel: str = 'processes') -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
-    Valuta le performance del forecast con gestione robusta degli errori.
+    Auto-tune Prophet parameters using cross-validation
     """
-    try:
-        df = df.copy()
-        forecast = forecast.copy()
-
-        # Assicurati che le date siano in formato datetime
-        df['ds'] = pd.to_datetime(df['ds'])
-        forecast['ds'] = pd.to_datetime(forecast['ds'])
-
-        # Join dei dati per valutazione
-        eval_df = df[df['ds'].isin(forecast['ds'])].set_index('ds')
-        pred_df = forecast.set_index('ds').loc[eval_df.index]
-
-        df_combined = eval_df.join(pred_df[['yhat']], how='inner')
-
-        # Verifica che ci siano dati da valutare
-        if df_combined.empty:
-            raise ValueError("Nessun dato comune tra observed e forecast per la valutazione")
-
-        metrics = compute_all_metrics(df_combined['y'], df_combined['yhat'])
-        metrics['combined'] = df_combined
-        
-        return metrics
-        
-    except Exception as e:
-        st.error(f"Errore durante la valutazione del forecast: {e}")
-        return {'combined': pd.DataFrame(), 'MAE': np.nan, 'MSE': np.nan, 'RMSE': np.nan, 'MAPE': np.nan, 'SMAPE': np.nan}
-
-def plot_forecast(model, forecast):
-    """
-    Crea il plot del forecast con gestione errori.
-    """
-    try:
-        return plot_plotly(model, forecast)
-    except Exception as e:
-        st.error(f"Errore nella generazione del grafico: {e}")
-        return None
-
-def plot_components(model, forecast):
-    return plot_components_plotly(model, forecast)
-
-def run_prophet_model(df, date_col, target_col, freq, horizon, make_forecast, use_cv=False, cv_start_date=None, cv_end_date=None, n_folds=5, fold_horizon=30, test_start_date=None, test_end_date=None, params=None, selected_metrics=None, return_metrics=False):
-    import prophet
-    # st.info(f"Versione di Prophet in uso: {prophet.__version__}")  # <-- RIMOSSO QUESTO MESSAGGIO
-    if not return_metrics:
-        st.subheader("Prophet Forecast")
-
-    # Preprocessing
-    prophet_df = df[[date_col, target_col]].rename(columns={date_col: 'ds', target_col: 'y'})
-    prophet_df['ds'] = pd.to_datetime(prophet_df['ds'])
-
-    # Imposta i parametri del modello, con valori di default
-    if params is None:
-        params = {}
-    seasonality_mode = params.get('seasonality_mode', 'additive')
-    changepoint_prior_scale = params.get('changepoint_prior_scale', 0.05)
-    holidays_country = params.get('holidays_country')
-
-    holidays = None
-    if holidays_country:
-        try:
-            # Questa è una semplificazione, per un'implementazione robusta
-            # si dovrebbe usare una libreria come `holidays`
-            from prophet.make_holidays import make_holidays_df
-            years = prophet_df['ds'].dt.year.unique()
-            holidays = make_holidays_df(year_list=years, country=holidays_country)
-        except Exception as e:
-            st.warning(f"Non è stato possibile caricare le festività per {holidays_country}: {e}")
-
-    if use_cv:
-        st.markdown("### Cross-Validation Prophet")
-
-        try:
-            total_days = (cv_end_date - cv_start_date).days
-            initial_days = total_days - (n_folds - 1) * fold_horizon
-
-            if initial_days <= 0:
-                st.error("Intervallo troppo corto per il numero di fold selezionato.")
-                return
-
-            df_cv_range = prophet_df[
-                (prophet_df['ds'] >= pd.to_datetime(cv_start_date)) & (prophet_df['ds'] <= pd.to_datetime(cv_end_date))
-            ].copy()
-
-            if not return_metrics:
-                st.info(f"Dati usati per CV: {df_cv_range['ds'].min().date()} → {df_cv_range['ds'].max().date()}")
-
-            model = Prophet(
-                seasonality_mode=seasonality_mode,
-                changepoint_prior_scale=changepoint_prior_scale,
-                holidays=holidays
-            )
-
-            # Fallback automatico per la cross-validation
-            try:
-                if not return_metrics:
-                    st.write("Esecuzione cross-validation con sintassi moderna (Prophet >= 1.1)...")
-                df_cv = cross_validation(
-                    model,
-                    df=df_cv_range,
-                    initial=f'{initial_days} days',
-                    period=f'{fold_horizon} days',
-                    horizon=f'{fold_horizon} days'
-                )
-            except TypeError as e:
-                if "unexpected keyword argument 'df'" in str(e):
-                    if not return_metrics:
-                        st.warning("Sintassi moderna fallita. Tentativo con la sintassi legacy (Prophet < 1.1)...")
-                    model.fit(df_cv_range)
-                    df_cv = cross_validation(
-                        model,
-                        initial=f'{initial_days} days',
-                        period=f'{fold_horizon} days',
-                        horizon=f'{fold_horizon} days'
-                    )
-                else:
-                    # Se l'errore è diverso, lo sollevo comunque
-                    raise e
-            
-            df_perf = performance_metrics(df_cv)
-            if not return_metrics:
-                st.dataframe(df_perf[['horizon', 'mae', 'rmse', 'mape']].round(2))
-
-                # Sintesi delle metriche
-                st.write("### CV Metrics (media su tutti i fold)")
-            
-            # Mostra solo le metriche selezionate
-            avg_metrics = {
-                'MAE': df_perf['mae'].mean(),
-                'RMSE': df_perf['rmse'].mean(),
-                'MAPE': df_perf['mape'].mean(),
-                'MSE': df_perf['mse'].mean(),
-                'SMAPE': df_perf['smape'].mean() if 'smape' in df_perf else np.nan
-            }
-
-            if not return_metrics:
-                cols = st.columns(len(selected_metrics))
-                for i, metric in enumerate(selected_metrics):
-                    metric_key = metric.upper()
-                    value = avg_metrics.get(metric_key, np.nan)
-                    if metric_key in ["MAPE", "SMAPE"]:
-                        cols[i].metric(metric, f"{value:.0f}%")
-                    else:
-                        cols[i].metric(metric, f"{value:.2f}")
-
-                # Plot del forecast dell'ultimo fold come esempio
-                st.write("### Grafico dell'ultimo fold di Cross-Validation")
-                last_cutoff = df_cv['cutoff'].max()
-                df_cv_last_fold = df_cv[df_cv['cutoff'] == last_cutoff]
-
-                import plotly.graph_objects as go
-                fig = go.Figure([
-                    go.Scatter(x=df_cv_last_fold['ds'], y=df_cv_last_fold['y'], name='Actual', mode='lines', line=dict(color='#1f77b4')),
-                    go.Scatter(x=df_cv_last_fold['ds'], y=df_cv_last_fold['yhat'], name='Forecast', mode='lines', line=dict(color='#ff7f0e', dash='dash')),
-                    go.Scatter(x=df_cv_last_fold['ds'], y=df_cv_last_fold['yhat_lower'], fill='tonexty', mode='none', fillcolor='rgba(255,127,14,0.2)', showlegend=False),
-                    go.Scatter(x=df_cv_last_fold['ds'], y=df_cv_last_fold['yhat_upper'], fill='tonexty', mode='none', fillcolor='rgba(255,127,14,0.2)', showlegend=False)
-                ])
-                fig.update_layout(title=f"CV Forecast vs Actuals (Cutoff: {last_cutoff.date()})")
-                st.plotly_chart(fig, use_container_width=True)
-
-        except Exception as e:
-            st.error(f"Errore durante la cross-validation: {e}")
-
-    else:
-        if not make_forecast:
-            if not return_metrics:
-                st.markdown("### Backtesting personalizzato")
-
-            if test_start_date and test_end_date:
-                test_mask = (prophet_df['ds'] >= pd.to_datetime(test_start_date)) & (prophet_df['ds'] <= pd.to_datetime(test_end_date))
-                test_df = prophet_df[test_mask]
-                train_df = prophet_df[prophet_df['ds'] < pd.to_datetime(test_start_date)]
-            else:
-                split_point = int(len(prophet_df) * 0.8)
-                train_df = prophet_df.iloc[:split_point]
-                test_df = prophet_df.iloc[split_point:]
-
-            if not return_metrics:
-                st.info(f"Training: {train_df['ds'].min().date()} → {train_df['ds'].max().date()}\nTest: {test_df['ds'].min().date()} → {test_df['ds'].max().date()}")
-
-            model = Prophet(
-                seasonality_mode=seasonality_mode,
-                changepoint_prior_scale=changepoint_prior_scale,
-                holidays=holidays
-            )
-            model.fit(train_df)
-
-            future = model.make_future_dataframe(periods=len(test_df), freq=freq)
-            forecast = model.predict(future)
-            forecast = forecast[forecast['ds'].isin(test_df['ds'])]
-
-            results = evaluate_forecast(test_df, forecast)
-            if not return_metrics:
-                st.plotly_chart(plot_plotly(model, forecast), use_container_width=True)
-                st.plotly_chart(plot_components_plotly(model, forecast), use_container_width=True)
-            
-                st.write("### Evaluation Metrics")
-                cols = st.columns(len(selected_metrics))
-                for i, metric in enumerate(selected_metrics):
-                    if metric in results:
-                        cols[i].metric(metric, f"{results[metric]:.3f}")
-
-                if st.button("📥 Scarica Forecast in Excel", key="prophet_download_btn_1"):
-                    import io
-                    forecast_out = forecast.copy()
-                    forecast_out = forecast_out[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
-                    buffer = io.BytesIO()
-                    forecast_out.to_excel(buffer, index=False, engine='openpyxl')
-                    buffer.seek(0)
-                    st.download_button(
-                    label="Download .xlsx",
-                    data=buffer,
-                    file_name="forecast.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
-        else:
-            model = Prophet(
-                seasonality_mode=seasonality_mode,
-                changepoint_prior_scale=changepoint_prior_scale,
-                holidays=holidays
-            )
-            model.fit(prophet_df)
-            future = model.make_future_dataframe(periods=horizon, freq=freq)
-            forecast = model.predict(future)
-
-            if not return_metrics:
-                st.markdown("### Forecast futuro")
-
-            import plotly.graph_objects as go
-
-            fig = go.Figure([
-                go.Scatter(
-                    x=forecast['ds'],
-                    y=forecast['yhat_upper'],
-                    mode='lines',
-                    line=dict(width=0),
-                    fill=None,
-                    showlegend=False
-                ),
-                go.Scatter(
-                    x=forecast['ds'],
-                    y=forecast['yhat_lower'],
-                    mode='lines',
-                    line=dict(width=0),
-                    fill='tonexty',
-                    fillcolor='rgba(255,127,14,0.2)',
-                    showlegend=False
-                ),
-                go.Scatter(
-                    x=forecast['ds'],
-                    y=forecast['yhat'],
-                    name='Forecast',
-                    mode='lines',
-                    line=dict(shape='spline', color='#ff7f0e')
-                ),
-                go.Scatter(
-                    x=prophet_df['ds'],
-                    y=prophet_df['y'],
-                    name='Storico',
-                    mode='markers',
-                    marker=dict(color='lightgrey', size=6)
-                )
-            ])
-
-            if not return_metrics:
-                st.plotly_chart(fig, use_container_width=True)
-
-                st.plotly_chart(plot_components(model, forecast), use_container_width=True)
-            metrics = evaluate_forecast(prophet_df, forecast)
-            
-            if not return_metrics:
-                st.write("### Evaluation Metrics (su dati storici)")
-                cols = st.columns(len(selected_metrics))
-                for i, metric in enumerate(selected_metrics):
-                    if metric in metrics:
-                        cols[i].metric(metric, f"{metrics[metric]:.3f}")
-
-                if st.button("📥 Scarica Forecast in Excel", key="prophet_download_btn_2"):
-                    import io
-                    forecast_out = forecast.copy()
-                    forecast_out = forecast_out[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
-                    buffer = io.BytesIO()
-                    forecast_out.to_excel(buffer, index=False, engine='openpyxl')
-                    buffer.seek(0)
-                    st.download_button(
-                    label="Download .xlsx",
-                    data=buffer,
-                    file_name="forecast.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
-    # Restituisce le metriche se richiesto (per il modulo Exploratory)
-    if return_metrics:
-        if use_cv:
-            # Restituisce le metriche medie della cross-validation
-            return avg_metrics if 'avg_metrics' in locals() else {}
-        elif not make_forecast:
-            # Restituisce le metriche del test set (backtesting)
-            return results if 'results' in locals() else {}
-        else:
-            # Restituisce le metriche del forecast standard o futuro
-            return metrics if 'metrics' in locals() else {}
+    # Parameter grid for tuning
+    param_grid = {
+        'changepoint_prior_scale': [0.001, 0.01, 0.1, 0.5],
+        'seasonality_prior_scale': [0.01, 0.1, 1.0, 10.0]
+    }
     
-    return None  # Default per mantenere compatibilità
+    best_params = {}
+    best_mape = float('inf')
+    results = []
+    
+    total_combinations = len(param_grid['changepoint_prior_scale']) * len(param_grid['seasonality_prior_scale'])
+    progress_bar = st.progress(0)
+    current_combination = 0
+    
+    for cps in param_grid['changepoint_prior_scale']:
+        for sps in param_grid['seasonality_prior_scale']:
+            current_combination += 1
+            progress_bar.progress(current_combination / total_combinations)
+            
+            try:
+                # Create and fit model
+                model = Prophet(
+                    changepoint_prior_scale=cps,
+                    seasonality_prior_scale=sps,
+                    uncertainty_samples=0  # Disable for faster tuning
+                )
+                model.fit(df)
+                
+                # Cross-validation
+                cv_results = cross_validation(
+                    model, 
+                    horizon=f'{horizon} days',
+                    initial=f'{len(df)//2} days',
+                    period=f'{horizon//3} days',
+                    parallel=parallel
+                )
+                
+                # Calculate performance metrics
+                cv_metrics = performance_metrics(cv_results)
+                mape = cv_metrics['mape'].mean()
+                
+                results.append({
+                    'changepoint_prior_scale': cps,
+                    'seasonality_prior_scale': sps,
+                    'mape': mape,
+                    'mae': cv_metrics['mae'].mean(),
+                    'rmse': cv_metrics['rmse'].mean()
+                })
+                
+                if mape < best_mape:
+                    best_mape = mape
+                    best_params = {
+                        'changepoint_prior_scale': cps,
+                        'seasonality_prior_scale': sps
+                    }
+                    
+            except Exception as e:
+                st.warning(f"Parameter combination failed: cps={cps}, sps={sps}")
+                continue
+    
+    progress_bar.empty()
+    
+    tuning_results = {
+        'best_params': best_params,
+        'best_mape': best_mape,
+        'all_results': results
+    }
+    
+    return best_params, tuning_results
+
+def calculate_forecast_metrics(actual: np.ndarray, predicted: np.ndarray) -> Dict[str, float]:
+    """Calculate various forecast accuracy metrics"""
+    metrics = {}
+    
+    # Remove any NaN values
+    mask = ~(np.isnan(actual) | np.isnan(predicted))
+    actual = actual[mask]
+    predicted = predicted[mask]
+    
+    if len(actual) == 0:
+        return {'error': 'No valid data points for metric calculation'}
+    
+    # Mean Absolute Error
+    metrics['mae'] = np.mean(np.abs(actual - predicted))
+    
+    # Root Mean Square Error
+    metrics['rmse'] = np.sqrt(np.mean((actual - predicted) ** 2))
+    
+    # Mean Absolute Percentage Error
+    non_zero_mask = actual != 0
+    if np.any(non_zero_mask):
+        metrics['mape'] = np.mean(np.abs((actual[non_zero_mask] - predicted[non_zero_mask]) / actual[non_zero_mask])) * 100
+    else:
+        metrics['mape'] = np.inf
+    
+    # Mean Error (Bias)
+    metrics['me'] = np.mean(actual - predicted)
+    
+    # R-squared
+    ss_res = np.sum((actual - predicted) ** 2)
+    ss_tot = np.sum((actual - np.mean(actual)) ** 2)
+    metrics['r2'] = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+    
+    return metrics
+
+def create_prophet_plots(model, forecast, train_df, forecast_periods):
+    """Create Prophet-specific plots"""
+    plots = {}
+    
+    try:
+        # Main forecast plot
+        fig_forecast = go.Figure()
+        
+        # Historical data
+        fig_forecast.add_trace(go.Scatter(
+            x=train_df['ds'],
+            y=train_df['y'],
+            mode='lines',
+            name='Historical',
+            line=dict(color='blue')
+        ))
+        
+        # Forecast
+        forecast_start_idx = len(train_df)
+        forecast_data = forecast.iloc[forecast_start_idx:]
+        
+        fig_forecast.add_trace(go.Scatter(
+            x=forecast_data['ds'],
+            y=forecast_data['yhat'],
+            mode='lines',
+            name='Forecast',
+            line=dict(color='red')
+        ))
+        
+        # Confidence intervals
+        fig_forecast.add_trace(go.Scatter(
+            x=forecast_data['ds'],
+            y=forecast_data['yhat_upper'],
+            fill=None,
+            mode='lines',
+            line_color='rgba(0,0,0,0)',
+            showlegend=False
+        ))
+        
+        fig_forecast.add_trace(go.Scatter(
+            x=forecast_data['ds'],
+            y=forecast_data['yhat_lower'],
+            fill='tonexty',
+            mode='lines',
+            line_color='rgba(0,0,0,0)',
+            name='Confidence Interval',
+            fillcolor='rgba(255,0,0,0.2)'
+        ))
+        
+        fig_forecast.update_layout(
+            title='Prophet Forecast',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            height=500
+        )
+        
+        plots['forecast'] = fig_forecast
+        
+        # Components plot
+        if hasattr(model, 'predict_seasonal_components'):
+            components = model.predict_seasonal_components(forecast)
+            fig_components = go.Figure()
+            
+            # Trend
+            if 'trend' in components.columns:
+                fig_components.add_trace(go.Scatter(
+                    x=forecast['ds'],
+                    y=components['trend'],
+                    mode='lines',
+                    name='Trend'
+                ))
+            
+            # Weekly seasonality
+            if 'weekly' in components.columns:
+                fig_components.add_trace(go.Scatter(
+                    x=forecast['ds'],
+                    y=components['weekly'],
+                    mode='lines',
+                    name='Weekly'
+                ))
+            
+            # Yearly seasonality
+            if 'yearly' in components.columns:
+                fig_components.add_trace(go.Scatter(
+                    x=forecast['ds'],
+                    y=components['yearly'],
+                    mode='lines',
+                    name='Yearly'
+                ))
+            
+            fig_components.update_layout(
+                title='Forecast Components',
+                xaxis_title='Date',
+                yaxis_title='Component Value',
+                height=400
+            )
+            
+            plots['components'] = fig_components
+        
+    except Exception as e:
+        st.warning(f"Could not create some plots: {str(e)}")
+    
+    return plots

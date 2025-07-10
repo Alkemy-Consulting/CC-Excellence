@@ -469,6 +469,7 @@ def clean_data(df: pd.DataFrame, cleaning_preferences: Dict[str, Any], target_co
             Q1 = numeric_values.quantile(0.25)
             Q3 = numeric_values.quantile(0.75)
             IQR = Q3 - Q1
+            
             lower_bound = Q1 - 1.5 * IQR
             upper_bound = Q3 + 1.5 * IQR
             
@@ -708,3 +709,106 @@ def detect_value_column(df: pd.DataFrame, exclude_cols: List[str] = None) -> str
             return col
     
     return df.columns[0] if len(df.columns) > 0 else None
+
+def get_holidays_for_country(country_code: str, date_series: pd.Series) -> pd.DataFrame:
+    """
+    Ottiene le festività per un paese specifico nell'intervallo di date fornito
+    
+    Args:
+        country_code: Codice paese (es. 'IT', 'US', 'UK')
+        date_series: Serie di date per determinare l'intervallo
+        
+    Returns:
+        pd.DataFrame: DataFrame con colonne 'ds' (date) e 'holiday' (nome festività)
+    """
+    try:
+        import holidays
+    except ImportError:
+        st.error("Package 'holidays' not installed. Please install with: pip install holidays")
+        return pd.DataFrame()
+    
+    min_date = date_series.min().date()
+    max_date = date_series.max().date()
+    
+    # Mappa codici paese
+    country_map = {
+        'IT': 'Italy',
+        'US': 'UnitedStates', 
+        'UK': 'UnitedKingdom',
+        'DE': 'Germany',
+        'FR': 'France',
+        'ES': 'Spain',
+        'CA': 'Canada'
+    }
+    
+    if country_code not in country_map:
+        return pd.DataFrame()
+    
+    try:
+        # Ottieni festività per gli anni nell'intervallo
+        start_year = min_date.year
+        end_year = max_date.year
+        
+        country_holidays = holidays.country_holidays(country_map[country_code])
+        
+        holiday_list = []
+        for year in range(start_year, end_year + 1):
+            year_holidays = country_holidays[year]
+            for date, name in year_holidays.items():
+                if min_date <= date <= max_date:
+                    holiday_list.append({'ds': date, 'holiday': name})
+        
+        return pd.DataFrame(holiday_list)
+    
+    except Exception as e:
+        st.error(f"Error loading holidays for {country_code}: {e}")
+        return pd.DataFrame()
+
+
+def parse_manual_holidays(holiday_text: str) -> pd.DataFrame:
+    """
+    Parsa festività inserite manualmente dall'utente
+    
+    Args:
+        holiday_text: Testo con festività nel formato "YYYY-MM-DD, Nome Festività"
+        
+    Returns:
+        pd.DataFrame: DataFrame con colonne 'ds' (date) e 'holiday' (nome festività)
+    """
+    holidays_list = []
+    
+    if not holiday_text.strip():
+        return pd.DataFrame()
+    
+    lines = holiday_text.strip().split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        try:
+            # Split by comma
+            if ',' not in line:
+                continue
+                
+            date_str, holiday_name = line.split(',', 1)
+            date_str = date_str.strip()
+            holiday_name = holiday_name.strip()
+            
+            # Parse date
+            try:
+                holiday_date = pd.to_datetime(date_str).date()
+                holidays_list.append({
+                    'ds': holiday_date,
+                    'holiday': holiday_name
+                })
+            except:
+                st.warning(f"Could not parse date: {date_str}")
+                continue
+                
+        except Exception as e:
+            st.warning(f"Could not parse line: {line}")
+            continue
+    
+    return pd.DataFrame(holidays_list)

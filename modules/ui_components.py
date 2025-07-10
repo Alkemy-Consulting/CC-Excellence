@@ -11,16 +11,10 @@ import plotly.express as px
 from typing import Dict, List, Tuple, Optional, Any
 from datetime import datetime, timedelta
 
-try:
-    from .config import *
-    from .data_utils import *
-    from .config import SUPPORTED_HOLIDAY_COUNTRIES
-    from .data_utils import get_holidays_for_country, parse_manual_holidays
-except ImportError:
-    from config import *
-    from data_utils import *
-    from config import SUPPORTED_HOLIDAY_COUNTRIES
-    from data_utils import get_holidays_for_country, parse_manual_holidays
+from .config import *
+from .data_utils import *
+from .config import SUPPORTED_HOLIDAY_COUNTRIES
+from .data_utils import get_holidays_for_country, parse_manual_holidays
 
 def render_data_upload_section() -> Tuple[Optional[pd.DataFrame], Optional[str], Optional[str], Dict[str, Any]]:
     """
@@ -470,33 +464,64 @@ def render_prophet_config() -> Dict[str, Any]:
     with st.expander("⚙️ Prophet Configuration", expanded=False):
         config = {}
         
+        # Auto-tuning option
+        st.subheader("🤖 Auto-Tuning")
+        config['auto_tune'] = st.checkbox(
+            "Enable Auto-Tuning",
+            value=True,
+            help="Automatically optimize Prophet parameters using cross-validation"
+        )
+        
+        if config['auto_tune']:
+            st.info("🔍 Auto-tuning will optimize changepoint_prior_scale and seasonality_prior_scale")
+            
+            config['tuning_horizon'] = st.number_input(
+                "Tuning Horizon (days)",
+                min_value=7,
+                max_value=90,
+                value=30,
+                help="Forecast horizon for parameter tuning"
+            )
+            
+            config['tuning_parallel'] = st.selectbox(
+                "Parallel Processing",
+                ['processes', 'threads', None],
+                index=0,
+                help="Type of parallelization for faster tuning"
+            )
+        
         # Core parameters
         st.subheader("🔧 Core Parameters")
+        
+        if not config['auto_tune']:
+            config['changepoint_prior_scale'] = st.slider(
+                "Trend Flexibility",
+                min_value=0.001,
+                max_value=0.5,
+                value=PROPHET_DEFAULTS['changepoint_prior_scale'],
+                step=0.001,
+                format="%.3f",
+                help=PARAMETER_TOOLTIPS['prophet']['changepoint_prior_scale']
+            )
+            
+            config['seasonality_prior_scale'] = st.slider(
+                "Seasonality Strength",
+                min_value=0.01,
+                max_value=10.0,
+                value=PROPHET_DEFAULTS['seasonality_prior_scale'],
+                step=0.01,
+                help=PARAMETER_TOOLTIPS['prophet']['seasonality_prior_scale']
+            )
+        else:
+            # Set default values for auto-tuning
+            config['changepoint_prior_scale'] = PROPHET_DEFAULTS['changepoint_prior_scale']
+            config['seasonality_prior_scale'] = PROPHET_DEFAULTS['seasonality_prior_scale']
         
         config['seasonality_mode'] = st.selectbox(
             "Seasonality Mode",
             ['additive', 'multiplicative'],
             index=0,
             help=PARAMETER_TOOLTIPS['prophet']['seasonality_mode']
-        )
-        
-        config['changepoint_prior_scale'] = st.slider(
-            "Trend Flexibility",
-            min_value=0.001,
-            max_value=0.5,
-            value=PROPHET_DEFAULTS['changepoint_prior_scale'],
-            step=0.001,
-            format="%.3f",
-            help=PARAMETER_TOOLTIPS['prophet']['changepoint_prior_scale']
-        )
-        
-        config['seasonality_prior_scale'] = st.slider(
-            "Seasonality Strength",
-            min_value=0.01,
-            max_value=10.0,
-            value=PROPHET_DEFAULTS['seasonality_prior_scale'],
-            step=0.01,
-            help=PARAMETER_TOOLTIPS['prophet']['seasonality_prior_scale']
         )
         
         config['uncertainty_samples'] = st.number_input(
@@ -1005,11 +1030,38 @@ def render_forecast_config_section() -> Dict[str, Any]:
         )
         
         if config['enable_backtesting']:
-            pass
+            config['backtest_periods'] = st.number_input(
+                "Backtesting Periods",
+                min_value=7,
+                max_value=90,
+                value=30,
+                help="Number of periods to use for backtesting"
+            )
+            
+            config['cross_validation_cutoffs'] = st.number_input(
+                "Cross-Validation Cutoffs",
+                min_value=1,
+                max_value=10,
+                value=3,
+                help="Number of cutoff points for cross-validation"
+            )
     
     # Metrics selection
     with st.expander("📏 Evaluation Metrics", expanded=False):
-        pass
+        config['metrics_to_calculate'] = st.multiselect(
+            "Select Metrics to Calculate",
+            options=list(METRICS_DEFINITIONS.keys()),
+            default=['MAPE', 'MAE', 'RMSE'],
+            help="Metrics to calculate and display"
+        )
+        
+        config['display_metric_plots'] = st.checkbox(
+            "Display Metric Plots",
+            value=True,
+            help="Show visual plots of metric performance"
+        )
+    
+    return config
 
 
 def render_output_config_section() -> Dict[str, Any]:

@@ -756,3 +756,135 @@ def run_arima_model(df: pd.DataFrame, date_col: str, target_col: str,
     except Exception as e:
         st.error(f"❌ Error in ARIMA forecasting: {str(e)}")
         st.exception(e)
+
+def run_arima_forecast(df: pd.DataFrame, date_col: str, target_col: str, 
+                      model_config: Dict[str, Any], base_config: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, Any]]:
+    """
+    Wrapper function per ARIMA che rispetta l'interfaccia del forecast_engine
+    """
+    try:
+        from statsmodels.tsa.arima.model import ARIMA
+        from sklearn.metrics import mean_absolute_error, mean_squared_error
+        import plotly.graph_objects as go
+        
+        # Prepara i dati
+        data = df[[date_col, target_col]].copy()
+        data = data.sort_values(date_col).reset_index(drop=True)
+        time_series = data[target_col].values
+        
+        # Parametri del modello
+        p = model_config.get('p', 1)
+        d = model_config.get('d', 1) 
+        q = model_config.get('q', 1)
+        
+        # Se auto_arima è abilitato, usa parametri automatici
+        if model_config.get('auto_arima', True):
+            try:
+                from pmdarima import auto_arima
+                st.info("🔍 Auto-ARIMA: Finding optimal parameters...")
+                auto_model = auto_arima(
+                    time_series,
+                    seasonal=False,
+                    stepwise=True,
+                    suppress_warnings=True,
+                    error_action='ignore',
+                    max_p=model_config.get('max_p', 3),
+                    max_d=model_config.get('max_d', 2),
+                    max_q=model_config.get('max_q', 3)
+                )
+                p, d, q = auto_model.order
+                st.success(f"✅ Optimal parameters found: ARIMA({p},{d},{q})")
+            except:
+                st.warning("Auto-ARIMA failed, using default parameters")
+        
+        # Crea e addestra il modello
+        model = ARIMA(time_series, order=(p, d, q))
+        fitted_model = model.fit()
+        
+        # Genera forecast
+        forecast_periods = base_config.get('forecast_periods', 30)
+        forecast_result = fitted_model.forecast(steps=forecast_periods)
+        forecast_ci = fitted_model.get_forecast(steps=forecast_periods).conf_int()
+        
+        # Crea date future
+        last_date = pd.to_datetime(data[date_col].iloc[-1])
+        future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_periods, freq='D')
+        
+        # DataFrame risultato
+        forecast_df = pd.DataFrame({
+            date_col: future_dates,
+            'forecast': forecast_result,
+            'lower_bound': forecast_ci.iloc[:, 0],
+            'upper_bound': forecast_ci.iloc[:, 1]
+        })
+        
+        # Calcola metriche sui dati di training
+        fitted_values = fitted_model.fittedvalues
+        actual_values = time_series[fitted_model.model.k_diff:]  # Rimuovi i valori differenziati
+        
+        metrics = {
+            'mae': mean_absolute_error(actual_values, fitted_values),
+            'rmse': np.sqrt(mean_squared_error(actual_values, fitted_values)),
+            'mape': np.mean(np.abs((actual_values - fitted_values) / actual_values)) * 100,
+            'aic': fitted_model.aic,
+            'bic': fitted_model.bic
+        }
+        
+        # Crea plot
+        fig = go.Figure()
+        
+        # Dati storici
+        fig.add_trace(go.Scatter(
+            x=data[date_col],
+            y=data[target_col],
+            mode='lines',
+            name='Historical',
+            line=dict(color='blue')
+        ))
+        
+        # Forecast
+        fig.add_trace(go.Scatter(
+            x=forecast_df[date_col],
+            y=forecast_df['forecast'],
+            mode='lines',
+            name='Forecast',
+            line=dict(color='red')
+        ))
+        
+        # Intervalli di confidenza
+        fig.add_trace(go.Scatter(
+            x=forecast_df[date_col],
+            y=forecast_df['upper_bound'],
+            fill=None,
+            mode='lines',
+            line_color='rgba(0,0,0,0)',
+            showlegend=False
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=forecast_df[date_col],
+            y=forecast_df['lower_bound'],
+            fill='tonexty',
+            mode='lines',
+            line_color='rgba(0,0,0,0)',
+            name='Confidence Interval',
+            fillcolor='rgba(255,0,0,0.2)'
+        ))
+        
+        fig.update_layout(
+            title=f'ARIMA({p},{d},{q}) Forecast',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            height=500
+        )
+        
+        plots = {'forecast': fig}
+        
+        return forecast_df, metrics, plots
+        
+    except Exception as e:
+        st.error(f"Error in ARIMA forecasting: {str(e)}")
+        return pd.DataFrame(), {}, {}
+
+# Alias per compatibilità con forecast_engine
+run_arima_forecast = run_arima_model

@@ -64,6 +64,9 @@ HOLIDAY_COUNTRIES = {
     'ES': "Spagna"
 }
 
+# Alias per compatibilità
+SUPPORTED_HOLIDAY_COUNTRIES = HOLIDAY_COUNTRIES
+
 # Colonne che potrebbero contenere date (per auto-detection)
 DATE_COLUMN_NAMES = [
     'date', 'data', 'time', 'timestamp', 'datetime', 
