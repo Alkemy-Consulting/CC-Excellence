@@ -849,13 +849,22 @@ class SARIMAEnhanced:
             return b""
 
 
-def run_sarima_forecast(data: pd.DataFrame, config: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, go.Figure]]:
+def run_sarima_forecast(
+    data: pd.DataFrame, 
+    date_col: str, 
+    target_col: str, 
+    model_config: Dict[str, Any], 
+    base_config: Dict[str, Any]
+) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, go.Figure]]:
     """
     Main function to run SARIMA forecasting with enhanced features.
     
     Args:
         data: Input DataFrame with date and target columns
-        config: Configuration dictionary with model parameters
+        date_col: Name of the date column
+        target_col: Name of the target column
+        model_config: Configuration dictionary with model-specific parameters
+        base_config: Configuration dictionary with general forecast parameters
         
     Returns:
         Tuple of (forecast_df, metrics, plots)
@@ -866,14 +875,17 @@ def run_sarima_forecast(data: pd.DataFrame, config: Dict[str, Any]) -> Tuple[pd.
             st.error("❌ SARIMA dependencies are not available. Please install required packages.")
             return pd.DataFrame(), {}, {}
         
+        # Combine configs
+        config = {**base_config, **model_config}
+        
         # Initialize model
         model = SARIMAEnhanced()
         
         # Prepare data
         train_data, val_data = model.prepare_data(
             data, 
-            config['date_column'], 
-            config['target_column'],
+            date_col, 
+            target_col,
             config.get('train_size', 0.8)
         )
         

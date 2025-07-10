@@ -356,10 +356,17 @@ def run_enhanced_forecast(data: pd.DataFrame, date_col: str, target_col: str,
             return run_prophet_forecast(data, date_col, target_col, model_config, base_config)
         elif model_name.lower() == 'arima':
             return run_arima_forecast(data, date_col, target_col, model_config, base_config)
-        elif model_name.lower() == 'sarima':
-            return run_sarima_forecast(data, model_config)
-        elif model_name.lower() == 'holt-winters':
-            return run_holtwinters_forecast(data, model_config)
+        elif model_name == 'SARIMA':
+            # Pass all required columns to SARIMA
+            return run_sarima_forecast(data, date_col, target_col, model_config, base_config)
+        elif model_name == 'Holt-Winters':
+            if ENHANCED_MODELS_AVAILABLE:
+                forecast_df, metrics, plots = run_holtwinters_forecast(
+                    data, date_col, target_col, model_config
+                )
+            else:
+                st.error("Holt-Winters enhanced module is not available.")
+                return None
         else:
             raise ValueError(f"Unknown model: {model_name}")
             

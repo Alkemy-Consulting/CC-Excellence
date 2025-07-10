@@ -51,7 +51,7 @@ def render_data_upload_section() -> Tuple[Optional[pd.DataFrame], Optional[str],
         }
         
     else:  # Upload file
-        with st.expander("📂 File Upload Configuration", expanded=True):
+        with st.expander("📂 File Upload Configuration", expanded=False):
             # File format detection
             uploaded_file = st.file_uploader(
                 "Choose a CSV or Excel file",
@@ -209,7 +209,7 @@ def render_data_cleaning_section(df: pd.DataFrame, date_col: str, target_col: st
     
     cleaning_config = {}
     
-    with st.expander("📅 Time Range Filter", expanded=True):
+    with st.expander("📅 Time Range Filter", expanded=False):
         # Date range selection
         min_date = df[date_col].min().date()
         max_date = df[date_col].max().date()
@@ -243,7 +243,7 @@ def render_data_cleaning_section(df: pd.DataFrame, date_col: str, target_col: st
         
         cleaning_config['date_range'] = {'start': start_date, 'end': end_date}
     
-    with st.expander("⏱️ Frequency & Aggregation", expanded=True):
+    with st.expander("⏱️ Frequency & Aggregation", expanded=False):
         # Detect current frequency
         try:
             df_sorted = df_filtered.sort_values(date_col)
@@ -285,7 +285,7 @@ def render_data_cleaning_section(df: pd.DataFrame, date_col: str, target_col: st
             'aggregation_method': aggregation_method
         }
     
-    with st.expander("❌ Missing Values", expanded=True):
+    with st.expander("❌ Missing Values", expanded=False):
         # Check for missing values
         missing_stats = get_missing_value_stats(df_agg, target_col)
         
@@ -310,7 +310,7 @@ def render_data_cleaning_section(df: pd.DataFrame, date_col: str, target_col: st
             'original_count': missing_stats['count']
         }
     
-    with st.expander("📊 Outlier Detection & Handling", expanded=True):
+    with st.expander("📊 Outlier Detection & Handling", expanded=False):
         # Outlier detection
         outlier_stats = detect_outliers(df_agg, target_col)
         
@@ -463,7 +463,7 @@ def render_model_selection_section() -> Tuple[str, Dict[str, Any]]:
 
 def render_prophet_config() -> Dict[str, Any]:
     """Renderizza i parametri di configurazione per Prophet"""
-    with st.expander("⚙️ Prophet Configuration", expanded=True):
+    with st.expander("⚙️ Prophet Configuration", expanded=False):
         config = {}
         
         # Core parameters
@@ -581,10 +581,10 @@ def render_prophet_config() -> Dict[str, Any]:
 
 def render_arima_config() -> Dict[str, Any]:
     """Renderizza i parametri di configurazione per ARIMA"""
-    with st.expander("⚙️ ARIMA Configuration", expanded=True):
+    with st.expander("⚙️ ARIMA Configuration", expanded=False):
         config = {}
         
-        # Auto vs Manual
+        # Auto-ARIMA
         config['auto_arima'] = st.checkbox(
             "Auto-ARIMA",
             value=True,
@@ -654,10 +654,10 @@ def render_arima_config() -> Dict[str, Any]:
 
 def render_sarima_config() -> Dict[str, Any]:
     """Renderizza i parametri di configurazione per SARIMA"""
-    with st.expander("⚙️ SARIMA Configuration", expanded=True):
+    with st.expander("⚙️ SARIMA Configuration", expanded=False):
         config = {}
         
-        # Auto vs Manual
+        # Auto-SARIMA
         config['auto_sarima'] = st.checkbox(
             "Auto-SARIMA",
             value=True,
@@ -702,7 +702,7 @@ def render_sarima_config() -> Dict[str, Any]:
 
 def render_holtwinters_config() -> Dict[str, Any]:
     """Renderizza i parametri di configurazione per Holt-Winters"""
-    with st.expander("⚙️ Holt-Winters Configuration", expanded=True):
+    with st.expander("⚙️ Holt-Winters Configuration", expanded=False):
         config = {}
         
         # Core parameters
@@ -770,6 +770,7 @@ def render_holtwinters_config() -> Dict[str, Any]:
                 )
             else:
                 config['smoothing_seasonal'] = None
+                
         else:
             config['smoothing_level'] = None
             config['smoothing_trend'] = None
@@ -789,6 +790,8 @@ def render_holtwinters_config() -> Dict[str, Any]:
                     -2.0, 2.0, 0.0, 0.1,
                     help="Lambda parameter for Box-Cox (None = auto)"
                 )
+            else:
+                config['boxcox_lambda'] = None
             
             config['remove_bias'] = st.checkbox(
                 "Remove Bias",
@@ -800,167 +803,179 @@ def render_holtwinters_config() -> Dict[str, Any]:
 
 def render_external_regressors_section(df: pd.DataFrame, date_col: str, target_col: str) -> Dict[str, Any]:
     """
-    Renderizza la sezione per selezione e configurazione dei regressori esterni
-    
-    Returns:
-        Dict: Configurazione dei regressori esterni
+    Renderizza la sezione per la configurazione dei regressori esterni
     """
-    st.header("5. 📈 External Regressors (Advanced)")
-    
-    regressor_config = {}
-    
-    with st.expander("🔍 Regressor Selection", expanded=False):
-        # Get candidate regressors
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        candidate_regressors = [col for col in numeric_cols if col != target_col]
-        
-        if not candidate_regressors:
-            st.info("ℹ️ No numeric columns available as potential regressors")
-            regressor_config['use_regressors'] = False
-            return regressor_config
-        
-        use_regressors = st.checkbox(
-            "Enable External Regressors",
+    st.header("5. 📈 External Regressors & Holidays")
+
+    regressor_config = {
+        'holidays_df': None,
+        'selected_regressors': []
+    }
+    holidays_df = None
+
+    with st.expander("📅 Holiday Effects", expanded=False):
+        add_holidays = st.checkbox(
+            "Add Holiday Effects",
             value=False,
-            help="Use additional variables to improve forecast accuracy"
+            help="Include holiday effects in the forecast"
+        )
+
+        if add_holidays:
+            holiday_source = st.radio(
+                "Select holiday source",
+                ["Select Country", "Manual Input"],
+                horizontal=True,
+                key="holiday_source"
+            )
+
+            if holiday_source == "Select Country":
+                country_code = st.selectbox(
+                    "Select Country for Holidays",
+                    options=[None] + list(SUPPORTED_HOLIDAY_COUNTRIES.keys()),
+                    format_func=lambda x: SUPPORTED_HOLIDAY_COUNTRIES.get(x, "None"),
+                    help="Automatically include national holidays for the selected country."
+                )
+                if country_code:
+                    try:
+                        holidays_df = get_holidays_for_country(country_code, df[date_col])
+                        st.success(f"✅ Loaded {len(holidays_df)} holidays for {SUPPORTED_HOLIDAY_COUNTRIES[country_code]}")
+                        if not holidays_df.empty:
+                            st.dataframe(holidays_df.head(), height=150)
+                    except Exception as e:
+                        st.error(f"Could not load holidays: {e}")
+            
+            elif holiday_source == "Manual Input":
+                st.info("Enter holiday names and dates. Format: YYYY-MM-DD, Holiday Name")
+                manual_holidays_text = st.text_area(
+                    "Manual Holidays (one per line)",
+                    "2024-01-01, New Year\n2024-12-25, Christmas",
+                    height=150,
+                    help="Provide holidays in 'YYYY-MM-DD, Holiday Name' format."
+                )
+                if st.button("Parse Manual Holidays"):
+                    try:
+                        holidays_df = parse_manual_holidays(manual_holidays_text)
+                        st.success(f"✅ Parsed {len(holidays_df)} manual holidays.")
+                        if not holidays_df.empty:
+                            st.dataframe(holidays_df.head(), height=150)
+                    except Exception as e:
+                        st.error(f"❌ Error parsing holidays: {e}")
+
+    if holidays_df is not None and not holidays_df.empty:
+        regressor_config['holidays_df'] = holidays_df
+
+    with st.expander("📊 External Regressors", expanded=False):
+        # Get potential regressor columns
+        potential_regressors = df.select_dtypes(include=[np.number]).columns.tolist()
+        if target_col in potential_regressors:
+            potential_regressors.remove(target_col)
+        
+        if not potential_regressors:
+            st.info("No numerical columns available to use as external regressors.")
+            selected_regressors = []
+        else:
+            selected_regressors = st.multiselect(
+                "Select External Regressors",
+                options=potential_regressors,
+                help="Select additional numerical columns to include in the model."
+            )
+        
+        if selected_regressors:
+            st.success(f"✅ Selected {len(selected_regressors)} regressors.")
+            regressor_config['selected_regressors'] = selected_regressors
+
+    return regressor_config
+
+def render_forecast_horizon_section(df: pd.DataFrame, date_col: str, 
+                                    freq: str) -> Tuple[int, pd.Timestamp, pd.Timestamp]:
+    """
+    Renderizza la sezione per la configurazione dell'orizzonte di previsione
+    """
+    st.header("6. 🎯 Forecast Horizon Configuration")
+    
+    # Default values
+    default_horizon = 30
+    min_horizon = 1
+    max_horizon = 365
+    
+    with st.expander("⚙️ Horizon Parameters", expanded=False):
+        # Forecast horizon
+        horizon = st.number_input(
+            "Forecast Horizon (days)",
+            min_value=min_horizon,
+            max_value=max_horizon,
+            value=default_horizon,
+            help="Number of days to forecast into the future"
         )
         
-        regressor_config['use_regressors'] = use_regressors
+        # Frequency
+        frequency = st.selectbox(
+            "Forecast Frequency",
+            ['D', 'W', 'M', 'Q', 'Y'],
+            index=0,
+            help="Frequency of the forecasted data"
+        )
         
-        if use_regressors:
-            # Auto-detect candidate regressors
-            auto_candidates = get_regressor_candidates(df, target_col)
-            
-            if auto_candidates:
-                st.subheader("🎯 Suggested Regressors")
-                st.info(f"Auto-detected {len(auto_candidates)} potential regressors based on correlation")
-                
-                for reg in auto_candidates:
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.write(f"**{reg['column']}** - Correlation: {reg['correlation']:.3f}")
-                    with col2:
-                        st.button(f"Add {reg['column']}", key=f"add_{reg['column']}")
-            
-            # Manual regressor selection
-            st.subheader("📋 Manual Selection")
-            selected_regressors = st.multiselect(
-                "Select Regressor Columns",
-                options=candidate_regressors,
-                help="Choose columns to use as external regressors"
-            )
-            
-            regressor_config['selected_regressors'] = selected_regressors
-            
-            if selected_regressors:
-                # Regressor configuration
-                st.subheader("⚙️ Regressor Configuration")
-                regressor_configs = {}
-                
-                for regressor in selected_regressors:
-                    with st.expander(f"Configure: {regressor}"):
-                        reg_config = {}
-                        
-                        # Transformation options
-                        reg_config['transform'] = st.selectbox(
-                            "Transformation",
-                            ['none', 'log', 'sqrt', 'diff', 'standardize'],
-                            key=f"transform_{regressor}",
-                            help="Apply transformation to regressor values"
-                        )
-                        
-                        # Lag configuration
-                        reg_config['lag'] = st.number_input(
-                            "Lag Periods",
-                            min_value=0,
-                            max_value=30,
-                            value=0,
-                            key=f"lag_{regressor}",
-                            help="Number of periods to lag this regressor"
-                        )
-                        
-                        # Future value handling
-                        reg_config['future_method'] = st.selectbox(
-                            "Future Value Method",
-                            ['last_value', 'mean', 'trend', 'manual'],
-                            key=f"future_{regressor}",
-                            help="How to generate future values for this regressor"
-                        )
-                        
-                        if reg_config['future_method'] == 'manual':
-                            reg_config['future_value'] = st.number_input(
-                                "Future Value",
-                                value=df[regressor].mean(),
-                                key=f"future_val_{regressor}",
-                                help="Fixed value to use for future periods"
-                            )
-                        
-                        regressor_configs[regressor] = reg_config
-                
-                regressor_config['regressor_configs'] = regressor_configs
-                
-                # Validation
-                st.subheader("✅ Regressor Validation")
-                for regressor in selected_regressors:
-                    missing_pct = df[regressor].isna().sum() / len(df) * 100
-                    correlation = df[regressor].corr(df[target_col])
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric(f"{regressor} Missing %", f"{missing_pct:.1f}%")
-                    with col2:
-                        st.metric(f"{regressor} Correlation", f"{correlation:.3f}")
-                    with col3:
-                        if abs(correlation) > 0.3:
-                            st.success("✅ Good correlation")
-                        elif abs(correlation) > 0.1:
-                            st.warning("⚠️ Weak correlation")
-                        else:
-                            st.error("❌ Very weak correlation")
-        else:
-            regressor_config['selected_regressors'] = []
-            regressor_config['regressor_configs'] = {}
+        # Start date
+        min_date = df[date_col].min().date()
+        max_date = df[date_col].max().date() + timedelta(days=horizon)
+        start_date = st.date_input(
+            "Forecast Start Date",
+            value=max_date - timedelta(days=default_horizon),
+            min_value=min_date,
+            max_value=max_date,
+            help="Start date for the forecast"
+        )
     
-    return regressor_config
+    # Calculate end date based on horizon
+    end_date = start_date + timedelta(days=horizon)
+    
+    st.info(f"📅 Forecasting from {start_date} to {end_date} ({horizon} days)")
+    
+    return horizon, start_date, end_date
 
 def render_forecast_config_section() -> Dict[str, Any]:
     """
-    Renderizza la sezione di configurazione del forecast
-    
-    Returns:
-        Dict: Configurazione del forecast
+    Renderizza la sezione per la configurazione del forecast
     """
-    st.header("6. 🔮 Forecast Configuration")
+    st.header("7. 🎯 Forecast Settings")
     
-    forecast_config = {}
-    
-    forecast_config['make_forecast'] = st.checkbox(
-        "Generate Future Forecast",
-        value=True,
-        help="Create predictions for future time periods"
-    )
-    
-    if forecast_config['make_forecast']:
-        forecast_config['horizon'] = st.number_input(
+    with st.expander("⚙️ Forecast Parameters", expanded=False):
+        config = {}
+        
+        # Forecast horizon
+        config['horizon'] = st.number_input(
             "Forecast Horizon",
             min_value=1,
             max_value=365,
             value=DEFAULT_HORIZON,
             help="Number of future periods to forecast"
         )
-    else:
-        forecast_config['horizon'] = 0
-    
-    # Confidence intervals
-    with st.expander("📊 Confidence Intervals", expanded=True):
-        forecast_config['include_confidence'] = st.checkbox(
+        
+        # Frequency
+        config['frequency'] = st.selectbox(
+            "Forecast Frequency",
+            ['D', 'W', 'M', 'Q', 'Y'],
+            index=0,
+            help="Frequency of the forecasted data"
+        )
+        
+        # Aggregation method
+        config['aggregation'] = st.selectbox(
+            "Aggregation Method",
+            AGGREGATION_METHODS,
+            help="Method to aggregate data at the desired frequency"
+        )
+        
+        # Confidence intervals
+        config['include_confidence'] = st.checkbox(
             "Include Confidence Intervals",
             value=True,
             help="Generate prediction intervals for uncertainty quantification"
         )
         
-        if forecast_config['include_confidence']:
-            forecast_config['confidence_level'] = st.slider(
+        if config['include_confidence']:
+            config['confidence_level'] = st.slider(
                 "Confidence Level",
                 min_value=0.5,
                 max_value=0.99,
@@ -970,7 +985,7 @@ def render_forecast_config_section() -> Dict[str, Any]:
                 help="Confidence level for prediction intervals"
             )
             
-            forecast_config['interval_width'] = st.selectbox(
+            config['interval_width'] = st.selectbox(
                 "Interval Width",
                 [0.80, 0.90, 0.95, 0.99],
                 index=0,
@@ -978,24 +993,24 @@ def render_forecast_config_section() -> Dict[str, Any]:
             )
     
     # Backtesting configuration
-    with st.expander("📈 Backtesting & Validation", expanded=True):
-        forecast_config['enable_backtesting'] = st.checkbox(
+    with st.expander("📈 Backtesting & Validation", expanded=False):
+        config['enable_backtesting'] = st.checkbox(
             "Enable Backtesting",
             value=True,
             help="Test model performance on historical data"
         )
         
-        if forecast_config['enable_backtesting']:
+        if config['enable_backtesting']:
             backtest_method = st.radio(
                 "Validation Method",
                 ["Simple Split", "Cross-Validation", "Rolling Window"],
                 help="Method for splitting data into train/test sets"
             )
             
-            forecast_config['backtest_method'] = backtest_method
+            config['backtest_method'] = backtest_method
             
             if backtest_method == "Simple Split":
-                forecast_config['train_size'] = st.slider(
+                config['train_size'] = st.slider(
                     "Training Set Size",
                     min_value=0.5,
                     max_value=0.9,
@@ -1008,7 +1023,8 @@ def render_forecast_config_section() -> Dict[str, Any]:
             elif backtest_method == "Cross-Validation":
                 col1, col2 = st.columns(2)
                 with col1:
-                    forecast_config['cv_folds'] = st.number_input(
+                with col1:
+                    config['cv_folds'] = st.number_input(
                         "Number of Folds",
                         min_value=3,
                         max_value=20,
@@ -1016,7 +1032,7 @@ def render_forecast_config_section() -> Dict[str, Any]:
                         help="Number of cross-validation folds"
                     )
                 with col2:
-                    forecast_config['cv_horizon'] = st.number_input(
+                    config['cv_horizon'] = st.number_input(
                         "CV Horizon",
                         min_value=1,
                         max_value=90,
@@ -1027,7 +1043,7 @@ def render_forecast_config_section() -> Dict[str, Any]:
             elif backtest_method == "Rolling Window":
                 col1, col2 = st.columns(2)
                 with col1:
-                    forecast_config['window_size'] = st.number_input(
+                    config['window_size'] = st.number_input(
                         "Window Size",
                         min_value=50,
                         max_value=1000,
@@ -1035,7 +1051,7 @@ def render_forecast_config_section() -> Dict[str, Any]:
                         help="Size of rolling training window"
                     )
                 with col2:
-                    forecast_config['step_size'] = st.number_input(
+                    config['step_size'] = st.number_input(
                         "Step Size",
                         min_value=1,
                         max_value=30,
@@ -1044,9 +1060,9 @@ def render_forecast_config_section() -> Dict[str, Any]:
                     )
     
     # Metrics selection
-    with st.expander("📏 Evaluation Metrics", expanded=True):
+    with st.expander("📏 Evaluation Metrics", expanded=False):
         available_metrics = list(METRICS_DEFINITIONS.keys())
-        forecast_config['selected_metrics'] = st.multiselect(
+        config['selected_metrics'] = st.multiselect(
             "Select Evaluation Metrics",
             options=available_metrics,
             default=['MAPE', 'MAE', 'RMSE'],
@@ -1054,38 +1070,56 @@ def render_forecast_config_section() -> Dict[str, Any]:
         )
         
         # Show metric descriptions
-        for metric in forecast_config['selected_metrics']:
+        for metric in config['selected_metrics']:
             if metric in METRICS_DEFINITIONS:
                 st.info(f"**{metric}**: {METRICS_DEFINITIONS[metric]}")
     
-    return forecast_config
+    return config
 
 def render_output_config_section() -> Dict[str, Any]:
     """
-    Renderizza la sezione di configurazione dell'output
-    
-    Returns:
-        Dict: Configurazione dell'output
+    Renderizza la sezione per la configurazione dell'output
     """
-    st.header("7. 📊 Output & Export Configuration")
+    st.header("8. 💾 Output & Export")
     
-    output_config = {}
-    
-    # Visualization options
-    with st.expander("📈 Visualization Options", expanded=True):
-        output_config['show_components'] = st.checkbox(
+    with st.expander("⚙️ Output Configuration", expanded=False):
+        config = {}
+        
+        # Metrics selection
+        config['show_metrics'] = st.checkbox(
+            "Show Evaluation Metrics",
+            value=True,
+            help="Display evaluation metrics for the forecast"
+        )
+        
+        if config['show_metrics']:
+            config['metrics_list'] = st.multiselect(
+                "Select Metrics",
+                options=list(METRICS_DEFINITIONS.keys()),
+                default=['MAPE', 'MAE', 'RMSE'],
+                help="Metrics to display in the output"
+            )
+        
+        # Visualization options
+        config['show_forecast'] = st.checkbox(
+            "Show Forecast Plot",
+            value=True,
+            help="Display the forecasted values plot"
+        )
+        
+        config['show_components'] = st.checkbox(
             "Show Forecast Components",
             value=True,
             help="Display trend, seasonality, and other components"
         )
         
-        output_config['show_residuals'] = st.checkbox(
+        config['show_residuals'] = st.checkbox(
             "Show Residual Analysis",
             value=True,
             help="Display residual plots for model diagnostics"
         )
         
-        output_config['interactive_plots'] = st.checkbox(
+        config['interactive_plots'] = st.checkbox(
             "Interactive Plots",
             value=True,
             help="Enable zoom, pan, and hover features in plots"
@@ -1093,7 +1127,7 @@ def render_output_config_section() -> Dict[str, Any]:
         
         col1, col2 = st.columns(2)
         with col1:
-            output_config['plot_height'] = st.number_input(
+            config['plot_height'] = st.number_input(
                 "Plot Height",
                 min_value=300,
                 max_value=800,
@@ -1102,30 +1136,30 @@ def render_output_config_section() -> Dict[str, Any]:
             )
         
         with col2:
-            output_config['color_scheme'] = st.selectbox(
+            config['color_scheme'] = st.selectbox(
                 "Color Scheme",
                 ['plotly', 'seaborn', 'custom'],
                 help="Color palette for plots"
             )
     
     # Export options
-    with st.expander("💾 Export Options", expanded=True):
-        output_config['enable_export'] = st.checkbox(
+    with st.expander("💾 Export Options", expanded=False):
+        config['enable_export'] = st.checkbox(
             "Enable Export Features",
             value=True,
             help="Allow downloading results in various formats"
         )
         
-        if output_config['enable_export']:
-            output_config['export_formats'] = st.multiselect(
+        if config['enable_export']:
+            config['export_formats'] = st.multiselect(
                 "Export Formats",
                 options=['CSV', 'Excel', 'JSON', 'PDF Report'],
                 default=['CSV', 'Excel'],
                 help="Available download formats for results"
             )
             
-            if 'PDF Report' in output_config['export_formats']:
-                output_config['pdf_options'] = {
+            if 'PDF Report' in config['export_formats']:
+                config['pdf_options'] = {
                     'include_plots': st.checkbox("Include Plots in PDF", value=True),
                     'include_metrics': st.checkbox("Include Metrics Table", value=True),
                     'include_summary': st.checkbox("Include Model Summary", value=True)
@@ -1133,18 +1167,18 @@ def render_output_config_section() -> Dict[str, Any]:
     
     # Real-time monitoring
     with st.expander("🔄 Real-time Features", expanded=False):
-        output_config['auto_refresh'] = st.checkbox(
+        config['auto_refresh'] = st.checkbox(
             "Auto Refresh Results",
             value=False,
             help="Automatically refresh forecast when parameters change"
         )
         
-        if output_config['auto_refresh']:
-            output_config['refresh_interval'] = st.selectbox(
+        if config['auto_refresh']:
+            config['refresh_interval'] = st.selectbox(
                 "Refresh Interval",
                 [5, 10, 30, 60],
                 index=1,
                 help="Seconds between automatic refreshes"
             )
     
-    return output_config
+    return config

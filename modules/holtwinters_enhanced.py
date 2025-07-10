@@ -344,7 +344,7 @@ class HoltWintersEnhanced:
             if hasattr(self.fitted_model, 'params'):
                 diagnostics['fitted_parameters'] = dict(self.fitted_model.params)
             
-            self.diagnostics = diagnostics
+            self.diagnostics = diagnostics;
             
         except Exception as e:
             st.warning(f"Error in diagnostics: {str(e)}")
@@ -638,13 +638,20 @@ class HoltWintersEnhanced:
             return b""
 
 
-def run_holtwinters_forecast(data: pd.DataFrame, config: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, go.Figure]]:
+def run_holtwinters_forecast(
+    data: pd.DataFrame, 
+    date_col: str,
+    target_col: str,
+    config: Dict[str, Any]
+) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, go.Figure]]:
     """
     Main function to run Holt-Winters forecasting with enhanced features.
     
     Args:
-        data: Input DataFrame with date and target columns
-        config: Configuration dictionary with model parameters
+        data: Input DataFrame with date and target columns.
+        date_col: The name of the date column.
+        target_col: The name of the target column.
+        config: Configuration dictionary with model parameters.
         
     Returns:
         Tuple of (forecast_df, metrics, plots)
@@ -656,8 +663,8 @@ def run_holtwinters_forecast(data: pd.DataFrame, config: Dict[str, Any]) -> Tupl
         # Prepare data
         train_data, val_data = model.prepare_data(
             data, 
-            config['date_column'], 
-            config['target_column'],
+            date_col, 
+            target_col,
             config.get('train_size', 0.8)
         )
         

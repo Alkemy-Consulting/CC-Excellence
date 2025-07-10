@@ -32,6 +32,10 @@ if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
 if 'cleaned_data' not in st.session_state:
     st.session_state.cleaned_data = None
+if 'date_col' not in st.session_state:
+    st.session_state.date_col = None
+if 'target_col' not in st.session_state:
+    st.session_state.target_col = None
 if 'model_configs' not in st.session_state:
     st.session_state.model_configs = {}
 if 'forecast_config' not in st.session_state:
@@ -46,6 +50,8 @@ with st.sidebar:
     
     if df is not None and date_col and target_col:
         st.session_state.data_loaded = True
+        st.session_state.date_col = date_col
+        st.session_state.target_col = target_col
         
         # Step 2: Data Preview
         st.markdown("---")
@@ -75,7 +81,7 @@ with st.sidebar:
         st.markdown("---")
         output_config = render_output_config_section()
         
-        # Run Forecast Button - FIXED LOGIC
+        # Run Forecast Button - STRICT BUTTON-ONLY EXECUTION
         st.markdown("---")
         st.subheader("🚀 Execute Forecast")
         
@@ -89,14 +95,14 @@ with st.sidebar:
                 key="run_forecast_button"
             )
             
-            # Handle button click
+            # Handle button click - ONLY set flag when button is clicked
             if forecast_button:
                 st.session_state.run_forecast = True
                 st.rerun()
                 
             # Show current status
-            if st.session_state.get('run_forecast', False):
-                st.success("✅ Forecast ready to execute...")
+            if st.session_state.get('forecast_results_available', False):
+                st.success("✅ Forecast completed! Results shown below.")
             else:
                 st.info("⏳ Configure settings and click to run forecast")
         else:
@@ -112,7 +118,11 @@ with st.sidebar:
         if st.session_state.cleaned_data is not None:
             st.markdown("---")
             st.subheader("📊 Data Summary")
-            final_stats = get_data_statistics(st.session_state.cleaned_data, date_col, target_col)
+            final_stats = get_data_statistics(
+                st.session_state.cleaned_data, 
+                st.session_state.date_col, 
+                st.session_state.target_col
+            )
             
             st.metric("📈 Records", final_stats['total_records'])
             st.metric("📅 Date Range", f"{final_stats['date_range_days']} days")
@@ -151,12 +161,19 @@ if not st.session_state.data_loaded:
         if st.button("🎯 Quick Start with Sample Data", type="primary"):
             st.rerun()
 
-elif st.session_state.data_loaded and not st.session_state.get('run_forecast', False):
+elif st.session_state.data_loaded and not st.session_state.get('run_forecast', False) and not st.session_state.get('forecast_results_available', False):
     # Data loaded but forecast NOT triggered yet - FIXED CONDITION
     st.markdown("## 📊 Data Analysis & Preparation")
     
     if st.session_state.cleaned_data is not None:
         df_clean = st.session_state.cleaned_data
+        date_col = st.session_state.date_col
+        target_col = st.session_state.target_col
+        
+        # Guard against missing column names on rerun
+        if not date_col or not target_col:
+            st.warning("⚠️ Date and target columns not found. Please re-select them in the sidebar.")
+            st.stop()
         
         # Enhanced data visualization
         col1, col2 = st.columns([2, 1])
@@ -338,13 +355,19 @@ elif st.session_state.data_loaded and not st.session_state.get('run_forecast', F
         st.success("🎯 **Data is ready for forecasting!** Configure your model settings in the sidebar and click 'Run Forecast'")
 
 elif st.session_state.data_loaded and st.session_state.get('run_forecast', False):
-    # ONLY execute forecast when explicitly triggered - FIXED EXECUTION
+    # ONLY execute forecast when explicitly triggered - RESET FLAG IMMEDIATELY
+    
+    # CRITICAL: Reset the flag immediately to prevent repeated execution
+    st.session_state.run_forecast = False
+    
     st.markdown("## 🔮 Forecasting Results")
     
     # Get all necessary variables from session state
     df_clean = st.session_state.cleaned_data
+    date_col = st.session_state.date_col
+    target_col = st.session_state.target_col
     
-    if df_clean is not None and len(df_clean) > 0:
+    if df_clean is not None and len(df_clean) > 0 and date_col and target_col:
         try:
             # Get stored configurations
             selected_model = st.session_state.get('selected_model', 'Prophet')
@@ -389,14 +412,24 @@ elif st.session_state.data_loaded and st.session_state.get('run_forecast', False
                 
                 st.success(f"✅ Forecast completed successfully!")
                 
+                # Set flag to indicate results are available
+                st.session_state.forecast_results_available = True
+                
         except Exception as e:
             st.error(f"❌ Error during forecast execution:")
             st.exception(e)
             st.info("💡 Try adjusting model parameters or data preprocessing options.")
     
     else:
-        st.error("❌ No cleaned data available. Please check data preprocessing steps.")
-    
+        st.error("❌ No cleaned data available or column configuration is missing. Please check data preprocessing steps in the sidebar.")
+
+elif st.session_state.data_loaded and st.session_state.get('forecast_results_available', False):
+    # Show completed forecast results without re-executing
+    st.markdown("## 🔮 Forecasting Results")
+    st.info("📊 **Forecast completed!** Results are displayed above. Use the navigation buttons below to run another forecast or return to data analysis.")
+
+# Navigation section - shown for both execution results and results viewing
+if st.session_state.data_loaded and (st.session_state.get('run_forecast', False) or st.session_state.get('forecast_results_available', False)):
     # Reset options and navigation - ENHANCED USER CONTROL
     st.markdown("---")
     st.subheader("🔄 Next Actions")
@@ -404,23 +437,23 @@ elif st.session_state.data_loaded and st.session_state.get('run_forecast', False
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("🔄 Run Another Forecast", type="secondary", use_container_width=True):
-            # Clear forecast flag to return to data analysis view
-            if 'run_forecast' in st.session_state:
-                del st.session_state.run_forecast
+        if st.button("🔄 Run Another Forecast", type="secondary", use_container_width=True, key="run_another"):
+            # Clear forecast results flag to return to data analysis view
+            if 'forecast_results_available' in st.session_state:
+                del st.session_state.forecast_results_available
             st.rerun()
     
     with col2:
-        if st.button("📊 Back to Data Analysis", type="secondary", use_container_width=True):
-            # Clear forecast flag to return to data analysis view
-            if 'run_forecast' in st.session_state:
-                del st.session_state.run_forecast
+        if st.button("📊 Back to Data Analysis", type="secondary", use_container_width=True, key="back_to_data"):
+            # Clear forecast results flag to return to data analysis view
+            if 'forecast_results_available' in st.session_state:
+                del st.session_state.forecast_results_available
             st.rerun()
     
     with col3:
-        if st.button("🆕 Load New Data", type="secondary", use_container_width=True):
+        if st.button("🆕 Load New Data", type="secondary", use_container_width=True, key="load_new_data"):
             # Clear all session state to start fresh
-            for key in ['run_forecast', 'data_loaded', 'cleaned_data', 'model_configs']:
+            for key in ['run_forecast', 'forecast_results_available', 'data_loaded', 'cleaned_data', 'model_configs', 'date_col', 'target_col']:
                 if key in st.session_state:
                     del st.session_state[key]
             st.rerun()
