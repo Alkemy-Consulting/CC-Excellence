@@ -245,69 +245,43 @@ def validate_holtwinters_config(config: Dict[str, Any]) -> Dict[str, Any]:
     print(f"DEBUG: Validated Holt-Winters config: {validated}")
     return validated
 
-def display_forecast_results(model_name: str, forecast_df: pd.DataFrame, 
-                           metrics: Dict[str, Any], plots: Dict[str, Any]):
-    """
-    Display comprehensive forecast results
-    """
-    st.subheader(f"📊 {model_name} Forecast Results")
-    
-    # Display metrics
-    if metrics:
-        st.subheader("📏 Performance Metrics")
-        
+def display_forecast_results(model_name: str, forecast_df: pd.DataFrame, metrics: Dict[str, Any], plots: Dict[str, Any]):
+    """Display forecast results without header text"""
+    try:
+        # Display metrics
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            if 'mape' in metrics:
-                st.metric("MAPE", f"{metrics['mape']:.3f}%")
+            st.metric("MAPE", f"{metrics.get('mape', 0):.3f}%")
         with col2:
-            if 'mae' in metrics:
-                st.metric("MAE", f"{metrics['mae']:.3f}")
+            st.metric("MAE", f"{metrics.get('mae', 0):.3f}")
         with col3:
-            if 'rmse' in metrics:
-                st.metric("RMSE", f"{metrics['rmse']:.3f}")
+            st.metric("RMSE", f"{metrics.get('rmse', 0):.3f}")
         with col4:
-            if 'r2' in metrics:
-                st.metric("R²", f"{metrics['r2']:.3f}")
-    
-    # Display plots
-    if plots:
-        if 'forecast' in plots:
-            st.subheader("📈 Forecast Plot")
-            st.plotly_chart(plots['forecast'], use_container_width=True)
+            st.metric("R²", f"{metrics.get('r2', 0):.3f}")
         
-        if 'components' in plots:
-            st.subheader("🔍 Forecast Components")
-            st.plotly_chart(plots['components'], use_container_width=True)
+        # Display forecast plot if available
+        if 'forecast_plot' in plots:
+            st.plotly_chart(plots['forecast_plot'], use_container_width=True)
         
-        if 'tuning_results' in plots:
-            st.subheader("🎯 Auto-Tuning Results")
-            tuning_data = plots['tuning_results']['all_results']
-            if tuning_data:
-                tuning_df = pd.DataFrame(tuning_data)
-                st.dataframe(tuning_df.round(4), use_container_width=True)
-    
-    # Display forecast data
-    if not forecast_df.empty:
-        st.subheader("📋 Forecast Data")
-        st.dataframe(forecast_df.round(3), use_container_width=True)
+        # Display additional plots if available
+        for plot_name, plot_fig in plots.items():
+            if plot_name != 'forecast_plot' and plot_fig is not None:
+                st.plotly_chart(plot_fig, use_container_width=True)
         
-        # Download options
-        col1, col2, col3 = st.columns(3)
+        # Display forecast data table
+        if not forecast_df.empty:
+            with st.expander("📊 Forecast Data Table"):
+                st.dataframe(forecast_df)
+                
+                # Download forecast data
+                csv = forecast_df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Forecast Data (CSV)",
+                    data=csv,
+                    file_name=f"{model_name}_forecast.csv",
+                    mime="text/csv"
+                )
         
-        with col1:
-            csv = forecast_df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download CSV",
-                data=csv,
-                file_name=f"{model_name}_forecast.csv",
-                mime="text/csv"
-            )
-        
-        with col2:
-            # Excel download would require xlsxwriter
-            st.info("Excel download available with xlsxwriter")
-        
-        with col3:
-            st.info("PDF report feature coming soon")
+    except Exception as e:
+        st.error(f"Error displaying forecast results: {str(e)}")
