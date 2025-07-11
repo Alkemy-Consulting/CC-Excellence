@@ -16,6 +16,299 @@ from .data_utils import *
 from .config import SUPPORTED_HOLIDAY_COUNTRIES
 from .data_utils import get_holidays_for_country, parse_manual_holidays
 
+# Import model configuration functions
+try:
+    from .prophet_module import render_prophet_config
+except ImportError:
+    def render_prophet_config():
+        """Renderizza i parametri di configurazione per Prophet"""
+        with st.expander("⚙️ Prophet Configuration", expanded=False):
+            config = {}
+            
+            # Auto-tuning option
+            st.subheader("🤖 Auto-Tuning")
+            config['auto_tune'] = st.checkbox(
+                "Enable Auto-Tuning",
+                value=True,
+                help="Automatically optimize Prophet parameters using cross-validation"
+            )
+            
+            if config['auto_tune']:
+                st.info("🔍 Auto-tuning will optimize changepoint_prior_scale and seasonality_prior_scale")
+                
+                config['tuning_horizon'] = st.number_input(
+                    "Tuning Horizon (days)",
+                    min_value=7,
+                    max_value=90,
+                    value=30,
+                    help="Forecast horizon for parameter tuning"
+                )
+            
+            # Core parameters
+            st.subheader("🔧 Core Parameters")
+            
+            if not config['auto_tune']:
+                config['changepoint_prior_scale'] = st.slider(
+                    "Trend Flexibility",
+                    min_value=0.001,
+                    max_value=0.5,
+                    value=0.05,
+                    step=0.001,
+                    format="%.3f",
+                    help="Controls trend flexibility. Higher values = more flexible trend"
+                )
+                
+                config['seasonality_prior_scale'] = st.slider(
+                    "Seasonality Strength",
+                    min_value=0.01,
+                    max_value=10.0,
+                    value=10.0,
+                    step=0.01,
+                    help="Controls seasonality strength. Higher values = stronger seasonality"
+                )
+            else:
+                config['changepoint_prior_scale'] = 0.05
+                config['seasonality_prior_scale'] = 10.0
+            
+            config['seasonality_mode'] = st.selectbox(
+                "Seasonality Mode",
+                ['additive', 'multiplicative'],
+                index=0,
+                help="How seasonality affects the trend"
+            )
+            
+            config['uncertainty_samples'] = st.number_input(
+                "Uncertainty Samples",
+                min_value=100,
+                max_value=2000,
+                value=1000,
+                step=100,
+                help="Number of samples for uncertainty estimation"
+            )
+            
+            # Seasonality configuration
+            st.subheader("📊 Seasonality Configuration")
+            
+            config['yearly_seasonality'] = st.selectbox(
+                "Yearly Seasonality",
+                ['auto', True, False],
+                index=0,
+                help="Automatically detect or manually set yearly patterns"
+            )
+            
+            config['weekly_seasonality'] = st.selectbox(
+                "Weekly Seasonality", 
+                ['auto', True, False],
+                index=0,
+                help="Automatically detect or manually set weekly patterns"
+            )
+            
+            config['daily_seasonality'] = st.selectbox(
+                "Daily Seasonality",
+                ['auto', True, False],
+                index=0,
+                help="Automatically detect or manually set daily patterns"
+            )
+            
+            return config
+
+try:
+    from .arima_module import render_arima_config
+except ImportError:
+    def render_arima_config():
+        """Renderizza i parametri di configurazione per ARIMA"""
+        with st.expander("⚙️ ARIMA Configuration", expanded=False):
+            config = {}
+            
+            # Auto-ARIMA
+            config['auto_arima'] = st.checkbox(
+                "Auto-ARIMA",
+                value=True,
+                help="Automatically find optimal parameters using statistical tests"
+            )
+            
+            if not config['auto_arima']:
+                st.subheader("📊 Manual ARIMA Parameters")
+                
+                config['p'] = st.number_input(
+                    "AR Order (p)",
+                    min_value=0,
+                    max_value=10,
+                    value=1,
+                    help="Autoregressive order - number of lag observations"
+                )
+                
+                config['d'] = st.number_input(
+                    "Differencing (d)",
+                    min_value=0,
+                    max_value=5,
+                    value=1,
+                    help="Degree of differencing to make series stationary"
+                )
+                
+                config['q'] = st.number_input(
+                    "MA Order (q)",
+                    min_value=0,
+                    max_value=10,
+                    value=1,
+                    help="Moving average order - size of moving average window"
+                )
+            else:
+                st.subheader("🔍 Auto-ARIMA Configuration")
+                
+                config['max_p'] = st.number_input("Max AR Order", min_value=1, max_value=10, value=5)
+                config['max_d'] = st.number_input("Max Differencing", min_value=1, max_value=3, value=2)
+                config['max_q'] = st.number_input("Max MA Order", min_value=1, max_value=10, value=5)
+                
+                config['information_criterion'] = st.selectbox(
+                    "Information Criterion",
+                    ['aic', 'bic', 'hqic'],
+                    help="Criterion for model selection"
+                )
+                config['stepwise'] = st.checkbox("Stepwise Search", value=True)
+                config['suppress_warnings'] = st.checkbox("Suppress Warnings", value=True)
+            
+            return config
+
+try:
+    from .sarima_module import render_sarima_config
+except ImportError:
+    def render_sarima_config():
+        """Renderizza i parametri di configurazione per SARIMA"""
+        with st.expander("⚙️ SARIMA Configuration", expanded=False):
+            config = {}
+            
+            # Auto-SARIMA
+            config['auto_sarima'] = st.checkbox(
+                "Auto-SARIMA",
+                value=True,
+                help="Automatically find optimal parameters"
+            )
+            
+            if not config['auto_sarima']:
+                # Non-seasonal parameters
+                st.subheader("📊 Non-Seasonal Parameters")
+                
+                config['p'] = st.number_input("AR (p)", 0, 10, 1, key="sarima_p")
+                config['d'] = st.number_input("Diff (d)", 0, 5, 1, key="sarima_d")
+                config['q'] = st.number_input("MA (q)", 0, 10, 1, key="sarima_q")
+                
+                # Seasonal parameters
+                st.subheader("🔄 Seasonal Parameters")
+                
+                config['P'] = st.number_input("Seasonal AR (P)", 0, 10, 1, key="sarima_P")
+                config['D'] = st.number_input("Seasonal Diff (D)", 0, 5, 1, key="sarima_D")
+                config['Q'] = st.number_input("Seasonal MA (Q)", 0, 10, 1, key="sarima_Q")
+                config['s'] = st.number_input("Season Length (s)", 1, 365, 12, key="sarima_s")
+            else:
+                st.subheader("🔍 Auto-SARIMA Configuration")
+                
+                config['max_p'] = st.number_input("Max p", 1, 5, 3, key="auto_sarima_max_p")
+                config['max_d'] = st.number_input("Max d", 1, 3, 2, key="auto_sarima_max_d")
+                config['max_q'] = st.number_input("Max q", 1, 5, 3, key="auto_sarima_max_q")
+                
+                config['max_P'] = st.number_input("Max P", 1, 3, 2, key="auto_sarima_max_P")
+                config['max_D'] = st.number_input("Max D", 1, 2, 1, key="auto_sarima_max_D")
+                config['max_Q'] = st.number_input("Max Q", 1, 3, 2, key="auto_sarima_max_Q")
+                
+                config['seasonal_period'] = st.number_input(
+                    "Seasonal Period",
+                    min_value=2,
+                    max_value=365,
+                    value=12,
+                    help="Length of seasonal cycle"
+                )
+            
+            return config
+
+try:
+    from .holtwinters_module import render_holtwinters_config
+except ImportError:
+    def render_holtwinters_config():
+        """Renderizza i parametri di configurazione per Holt-Winters"""
+        with st.expander("⚙️ Holt-Winters Configuration", expanded=False):
+            config = {}
+            
+            # Auto-Holt-Winters option
+            st.subheader("🤖 Auto-Tuning")
+            config['auto_holt_winters'] = st.checkbox(
+                "Auto-Holt-Winters",
+                value=True,
+                help="Automatically optimize all Holt-Winters parameters including smoothing constants and seasonality"
+            )
+            
+            if config['auto_holt_winters']:
+                st.info("🔍 Auto-tuning will optimize all parameters: trend type, seasonal type, smoothing constants (alpha, beta, gamma), and other model parameters")
+                
+                # Set default values for auto mode
+                config['trend'] = 'add'
+                config['seasonal'] = 'add'
+                config['damped_trend'] = False
+                config['seasonal_periods'] = 12
+                config['smoothing_level'] = None
+                config['smoothing_trend'] = None
+                config['smoothing_seasonal'] = None
+            else:
+                # Manual configuration mode
+                st.subheader("🔧 Core Parameters")
+                
+                config['trend'] = st.selectbox(
+                    "Trend Type",
+                    ['add', 'mul', None],
+                    index=0,
+                    help="Type of trend component: additive, multiplicative, or none"
+                )
+                
+                config['seasonal'] = st.selectbox(
+                    "Seasonal Type",
+                    ['add', 'mul', None],
+                    index=0,
+                    help="Type of seasonal component: additive, multiplicative, or none"
+                )
+                
+                config['damped_trend'] = st.checkbox(
+                    "Damped Trend",
+                    value=False,
+                    help="Use damped trend to prevent over-forecasting"
+                )
+                
+                config['seasonal_periods'] = st.number_input(
+                    "Seasonal Periods",
+                    min_value=2,
+                    max_value=365,
+                    value=12,
+                    help="Number of periods in a complete seasonal cycle"
+                )
+                
+                # Smoothing parameters
+                st.subheader("📊 Smoothing Parameters")
+                
+                config['smoothing_level'] = st.slider(
+                    "Alpha (Level)",
+                    0.0, 1.0, 0.2, 0.01,
+                    help="Smoothing parameter for level"
+                )
+                
+                if config['trend'] is not None:
+                    config['smoothing_trend'] = st.slider(
+                        "Beta (Trend)",
+                        0.0, 1.0, 0.1, 0.01,
+                        help="Smoothing parameter for trend"
+                    )
+                else:
+                    config['smoothing_trend'] = None
+                
+                if config['seasonal'] is not None:
+                    config['smoothing_seasonal'] = st.slider(
+                        "Gamma (Seasonal)",
+                        0.0, 1.0, 0.1, 0.01,
+                        help="Smoothing parameter for seasonal"
+                    )
+                else:
+                    config['smoothing_seasonal'] = None
+            
+            return config
+
 def render_data_upload_section() -> Tuple[Optional[pd.DataFrame], Optional[str], Optional[str], Dict[str, Any]]:
     """
     Renderizza la sezione di upload e configurazione dei dati
@@ -26,10 +319,10 @@ def render_data_upload_section() -> Tuple[Optional[pd.DataFrame], Optional[str],
     st.header("1. 📂 Data Source")
 
     # Data source selection
-    data_source = st.radio(
-        "Select data source:",
-        ["Sample Dataset", "Upload CSV/Excel File"],
-        help="Choose between using a generated sample dataset or uploading your own file"
+    use_sample_dataset = st.checkbox(
+        "Use Sample Dataset",
+        value=False,
+        help="Check to use a generated sample dataset with trend and seasonality"
     )
 
     df = None
@@ -37,7 +330,7 @@ def render_data_upload_section() -> Tuple[Optional[pd.DataFrame], Optional[str],
     target_col = None
     upload_config = {}
 
-    if data_source == "Sample Dataset":
+    if use_sample_dataset:
         st.info("📊 Using automatically generated sample dataset with trend and seasonality")
         df = generate_sample_data()
         date_col = 'date'
@@ -199,12 +492,15 @@ def render_data_cleaning_section(df: pd.DataFrame, date_col: str, target_col: st
     Returns:
         Tuple: (cleaned_dataframe, cleaning_config)
     """
-    st.header("3. 🧹 Data Cleaning & Preprocessing")
+    st.header("2. 🧹 Data Cleaning & Preprocessing")
     
     cleaning_config = {}
     
     with st.expander("📅 Time Range Filter", expanded=False):
-        # Date range selection
+        # Date range selection - ensure date column is datetime
+        if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
+            df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+        
         min_date = df[date_col].min().date()
         max_date = df[date_col].max().date()
         
@@ -413,7 +709,7 @@ def render_model_selection_section() -> Tuple[str, Dict[str, Any]]:
     Returns:
         Tuple: (selected_model, model_configs)
     """
-    st.header("3. 🤖 Model Selection & Configuration")
+    st.header("4. 🤖 Model Selection & Configuration")
 
     # Model selection
     model = st.selectbox(
@@ -448,7 +744,7 @@ def render_external_regressors_section(df: pd.DataFrame, date_col: str, target_c
     """
     Renderizza la sezione per la configurazione dei regressori esterni
     """
-    st.header("4. 📈 External Regressors & Holidays")
+    st.header("3. 📈 External Regressors & Holidays")
 
     regressor_config = {
         'holidays_df': None,
@@ -581,7 +877,7 @@ def render_forecast_config_section() -> Dict[str, Any]:
     """
     Renderizza la sezione per la configurazione del forecast
     """
-    st.header("6. 🎯 Forecast Settings")
+    st.header("5. 🎯 Forecast Settings")
     
     with st.expander("⚙️ Forecast Parameters", expanded=False):
         config = {}
@@ -811,7 +1107,7 @@ def render_output_config_section() -> Dict[str, Any]:
     """
     Renderizza la sezione per la configurazione dell'output
     """
-    st.header("8. 💾 Output & Export")
+    st.header("6. 💾 Output & Export")
     
     with st.expander("⚙️ Output Configuration", expanded=False):
         config = {}

@@ -96,7 +96,7 @@ def test_complete_app_workflow():
         try:
             hw_config = config.copy()
             hw_config.update({'trend': 'additive', 'seasonal': 'additive'})
-            hw_df, hw_metrics, hw_plots = run_holtwinters_forecast(test_data, hw_config)
+            hw_df, hw_metrics, hw_plots = run_holtwinters_forecast(test_data, 'date', 'volume', hw_config, {})
             print(f"✅ Holt-Winters: {len(hw_df)} periods")
         except Exception as e:
             print(f"⚠️ Holt-Winters issue: {e}")

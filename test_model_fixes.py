@@ -63,7 +63,7 @@ def test_holtwinters_module():
         }
         
         # This should not raise the get_prediction error anymore
-        forecast_df, metrics, plots = run_holtwinters_forecast(data, config)
+        forecast_df, metrics, plots = run_holtwinters_forecast(data, 'date', 'volume', config, {})
         
         if not forecast_df.empty:
             print("✅ HoltWinters forecast generated successfully")

@@ -73,6 +73,22 @@ root/
 
 ---
 
+## Chart Conventions
+
+- **Legenda**: tutti i grafici interattivi devono avere di default la legenda posizionata **sopra** il grafico, **allineata a destra**.
+- **Range Selector**: tutti i grafici di trendline devono includere i selettori di intervallo temporale nativi per l’asse X con preset:
+  - 1 mese
+  - 2 mesi
+  - 3 mesi
+  - 6 mesi
+  - 1 anno
+  - 2 anni
+  - All
+
+---
+
+---
+
 ## 5. Librerie Affidabili
 
 - Prophet, pmdarima, statsmodels, numpy, pandas, plotly, holidays.
@@ -101,18 +117,6 @@ root/
 
 ---
 
-## 🔄 Latest Changes
-
-### UI Layout & Data Analysis Enhancement (Current Session)
-- **Moved Analytics to Main Page**: Comprehensive dataset overview, quality assessment, and time series analysis moved from sidebar to main content area
-- **Enhanced Pre-Analysis**: Added detailed statistical summary, distribution analysis, outlier detection, and trend analysis with multiple moving averages
-- **Vertical Layout**: All elements displayed in vertical order for better readability
-- **Data Preparation in Sidebar**: All data processing and preparation logic kept in sidebar, main page only for visualization
-- **Quality Scoring**: Implemented comprehensive data quality scoring system with issue detection
-- **Time Series Decomposition**: Added advanced time series analysis including frequency detection and trend decomposition
-
----
-
 **Ultimo Aggiornamento**: sessione corrente
 
-**Versione**: v1.2.0
+**Versione**: v1.0.0

@@ -642,7 +642,8 @@ def run_holtwinters_forecast(
     data: pd.DataFrame, 
     date_col: str,
     target_col: str,
-    config: Dict[str, Any]
+    model_config: Dict[str, Any],
+    base_config: Dict[str, Any]
 ) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, go.Figure]]:
     """
     Main function to run Holt-Winters forecasting with enhanced features.
@@ -651,12 +652,16 @@ def run_holtwinters_forecast(
         data: Input DataFrame with date and target columns.
         date_col: The name of the date column.
         target_col: The name of the target column.
-        config: Configuration dictionary with model parameters.
+        model_config: Configuration dictionary with model-specific parameters.
+        base_config: Configuration dictionary with base forecasting parameters.
         
     Returns:
         Tuple of (forecast_df, metrics, plots)
     """
     try:
+        # Combine model_config and base_config
+        config = {**base_config, **model_config}
+        
         # Initialize model
         model = HoltWintersEnhanced()
         

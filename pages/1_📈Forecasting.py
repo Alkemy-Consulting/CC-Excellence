@@ -80,7 +80,6 @@ with st.sidebar:
         
         # Run Forecast Button - STRICT BUTTON-ONLY EXECUTION
         st.markdown("---")
-        st.subheader("🚀 Execute Forecast")
         
         # Check if data is ready
         if st.session_state.cleaned_data is not None and len(st.session_state.cleaned_data) > 0:
@@ -96,12 +95,10 @@ with st.sidebar:
             if forecast_button:
                 st.session_state.run_forecast = True
                 st.rerun()
-                
+            
             # Show current status
             if st.session_state.get('forecast_results_available', False):
                 st.success("✅ Forecast completed! Results shown below.")
-            else:
-                st.info("⏳ Configure settings and click to run forecast")
         else:
             st.button(
                 "🚀 Run Forecast", 
@@ -188,38 +185,73 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
         line=dict(color=PLOT_CONFIG['colors']['historical'])
     ))
     
-    # Add trend line
-    if len(df_clean) > 1:
-        x_numeric = np.arange(len(df_clean))
-        z = np.polyfit(x_numeric, df_clean[target_col], 1)
-        p = np.poly1d(z)
-        
-        fig.add_trace(go.Scatter(
-            x=df_clean[date_col],
-            y=p(x_numeric),
-            mode='lines',
-            name='Trend Line',
-            line=dict(color=PLOT_CONFIG['colors']['trend'], dash='dash')
-    ))
-    
-    # Add moving average
+    # Add 7-day moving average
     if len(df_clean) >= 7:
-        ma_7 = df_clean[target_col].rolling(window=7, center=True).mean()
+        df_clean['ma_7'] = df_clean[target_col].rolling(window=7, center=True).mean()
         fig.add_trace(go.Scatter(
             x=df_clean[date_col],
-            y=ma_7,
+            y=df_clean['ma_7'],
             mode='lines',
-            name='7-day Moving Average',
-            line=dict(color='orange', width=2),
-            opacity=0.7
+            name='7-Day MA',
+            line=dict(color='orange', width=2, dash='dash')
         ))
-    
+
+    # Add 30-day moving average
+    if len(df_clean) >= 30:
+        df_clean['ma_30'] = df_clean[target_col].rolling(window=30, center=True).mean()
+        fig.add_trace(go.Scatter(
+            x=df_clean[date_col],
+            y=df_clean['ma_30'],
+            mode='lines',
+            name='30-Day MA',
+            line=dict(color='green', width=2, dash='dot')
+        ))
+
+    # Add trend line
+    z = np.polyfit(range(len(df_clean)), df_clean[target_col], 1)
+    trend_line = np.poly1d(z)(range(len(df_clean)))
+    fig.add_trace(go.Scatter(
+        x=df_clean[date_col],
+        y=trend_line,
+        mode='lines',
+        name='Linear Trend',
+        line=dict(color='red', width=2, dash='dashdot')
+    ))
+
+    # Historical Time Series with Trend Analysis - Fixed legend positioning
     fig.update_layout(
         title="Historical Time Series with Trend Analysis",
         xaxis_title="Date",
         yaxis_title=target_col,
         height=PLOT_CONFIG['height'],
-        hovermode='x unified'
+        hovermode='x unified',
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",  # Align legend to the right
+            x=0.95  # Position at 95% of the width (right side)
+        ),
+        xaxis=dict(
+            rangeselector=dict(
+                buttons=list([
+                    dict(count=1, label="1M", step="month", stepmode="backward"),
+                    dict(count=3, label="3M", step="month", stepmode="backward"),
+                    dict(count=6, label="6M", step="month", stepmode="backward"),
+                    dict(count=1, label="1Y", step="year", stepmode="backward"),
+                    dict(count=2, label="2Y", step="year", stepmode="backward"),
+                    dict(step="all", label="All")
+                ]),
+                x=0.02,  # Position range selector at left (2% from left edge)
+                xanchor="left",  # Anchor to the left
+                y=1.02,  # Same height as legend
+                yanchor="bottom"
+            ),
+            rangeslider=dict(
+                visible=True
+            ),
+            type="date"
+        )
     )
     
     st.plotly_chart(fig, use_container_width=True)
@@ -422,13 +454,40 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                 marker=dict(color='orange', size=4)
             ))
             
+            # Time Series Decomposition - Fixed legend positioning
             fig.update_layout(
                 title=f"Time Series Decomposition (Period: {seasonal_period})",
                 xaxis_title="Date",
                 yaxis_title="Value",
-                height=500,
-                showlegend=True,
-                hovermode='x unified'
+                height=600,
+                hovermode='x unified',
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",  # Align legend to the right
+                    x=0.95  # Position at 95% of the width (right side)
+                ),
+                xaxis=dict(
+                    rangeselector=dict(
+                        buttons=list([
+                            dict(count=1, label="1M", step="month", stepmode="backward"),
+                            dict(count=3, label="3M", step="month", stepmode="backward"),
+                            dict(count=6, label="6M", step="month", stepmode="backward"),
+                            dict(count=1, label="1Y", step="year", stepmode="backward"),
+                            dict(count=2, label="2Y", step="year", stepmode="backward"),
+                            dict(step="all", label="All")
+                        ]),
+                        x=0.02,  # Position range selector at left (2% from left edge)
+                        xanchor="left",  # Anchor to the left
+                        y=1.02,  # Same height as legend
+                        yanchor="bottom"
+                    ),
+                    rangeslider=dict(
+                        visible=True
+                    ),
+                    type="date"
+                )
             )
             
             st.plotly_chart(fig, use_container_width=True)
@@ -490,27 +549,40 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                             x=monthly_stats['month'],
                             y=monthly_stats['mean'] + monthly_stats['std'],
                             mode='lines',
-                            line=dict(width=0),
-                            showlegend=False,
-                            hoverinfo='skip'
+                            name='+1 Std',
+                            line=dict(color='rgba(0,100,80,0)', width=0),
+                            showlegend=False
                         ))
+                        
                         fig_monthly.add_trace(go.Scatter(
                             x=monthly_stats['month'],
                             y=monthly_stats['mean'] - monthly_stats['std'],
                             mode='lines',
-                            line=dict(width=0),
-                            fillcolor='rgba(0,100,80,0.2)',
+                            name='Monthly Range',
+                            line=dict(color='rgba(0,100,80,0)', width=0),
                             fill='tonexty',
-                            name='±1 Std Dev',
-                            hoverinfo='skip'
+                            fillcolor='rgba(0,100,80,0.2)',
+                            showlegend=True
                         ))
                         
                         fig_monthly.update_layout(
-                            title="Monthly Seasonality Profile",
-                            xaxis_title="Month",
-                            yaxis_title="Average Value",
-                            xaxis=dict(tickmode='linear', tick0=1, dtick=1),
-                            height=350
+                            title='Monthly Seasonality Profile',
+                            xaxis_title='Month',
+                            yaxis_title='Average Value',
+                            height=350,
+                            legend=dict(
+                                orientation="h",
+                                yanchor="bottom",
+                                y=1.02,
+                                xanchor="center",
+                                x=0.5
+                            ),
+                            xaxis=dict(
+                                tickmode='array',
+                                tickvals=list(range(1, 13)),
+                                ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                                         'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                            )
                         )
                         st.plotly_chart(fig_monthly, use_container_width=True)
                     except Exception as e:
@@ -522,25 +594,58 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                 # Weekly seasonality
                 if len(df_seasonal) >= 14:  # At least 2 weeks
                     try:
-                        df_seasonal['weekday'] = df_seasonal[date_col].dt.day_name()
-                        weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-                        weekly_stats = df_seasonal.groupby('weekday')[target_col].mean().reindex(weekday_order)
+                        df_seasonal['dayofweek'] = df_seasonal[date_col].dt.dayofweek
+                        weekly_stats = df_seasonal.groupby('dayofweek')[target_col].agg(['mean', 'std']).reset_index()
                         
                         fig_weekly = go.Figure()
-                        fig_weekly.add_trace(go.Bar(
-                            x=weekly_stats.index,
-                            y=weekly_stats.values,
-                            name='Weekday Average',
-                            marker_color='lightblue'
+                        fig_weekly.add_trace(go.Scatter(
+                            x=weekly_stats['dayofweek'],
+                            y=weekly_stats['mean'],
+                            mode='lines+markers',
+                            name='Weekly Average',
+                            line=dict(color='blue', width=3),
+                            marker=dict(size=8)
+                        ))
+                        
+                        # Add confidence bands
+                        fig_weekly.add_trace(go.Scatter(
+                            x=weekly_stats['dayofweek'],
+                            y=weekly_stats['mean'] + weekly_stats['std'],
+                            mode='lines',
+                            name='+1 Std',
+                            line=dict(color='rgba(0,100,80,0)', width=0),
+                            showlegend=False
+                        ))
+                        
+                        fig_weekly.add_trace(go.Scatter(
+                            x=weekly_stats['dayofweek'],
+                            y=weekly_stats['mean'] - weekly_stats['std'],
+                            mode='lines',
+                            name='Weekly Range',
+                            line=dict(color='rgba(0,100,80,0)', width=0),
+                            fill='tonexty',
+                            fillcolor='rgba(0,100,80,0.2)',
+                            showlegend=True
                         ))
                         
                         fig_weekly.update_layout(
-                            title="Weekly Seasonality Profile",
-                            xaxis_title="Day of Week",
-                            yaxis_title="Average Value",
-                            height=350
+                            title='Weekly Seasonality Profile',
+                            xaxis_title='Day of Week',
+                            yaxis_title='Average Value',
+                            height=350,
+                            legend=dict(
+                                orientation="h",
+                                yanchor="bottom",
+                                y=1.02,
+                                xanchor="center",
+                                x=0.5
+                            ),
+                            xaxis=dict(
+                                tickmode='array',
+                                tickvals=list(range(7)),
+                                ticktext=['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+                            )
                         )
-                        fig_weekly.update_xaxes(tickangle=45)
                         st.plotly_chart(fig_weekly, use_container_width=True)
                     except Exception as e:
                         st.info("📊 Weekly seasonality analysis not available")
