@@ -638,36 +638,29 @@ class HoltWintersEnhanced:
             return b""
 
 
-def run_holtwinters_forecast(
-    data: pd.DataFrame, 
-    date_col: str,
-    target_col: str,
-    model_config: Dict[str, Any],
-    base_config: Dict[str, Any]
-) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, go.Figure]]:
+def run_holtwinters_forecast(df: pd.DataFrame, date_col: str, target_col: str,
+                           model_config: Dict[str, Any], base_config: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, Any]]:
     """
-    Main function to run Holt-Winters forecasting with enhanced features.
-    
-    Args:
-        data: Input DataFrame with date and target columns.
-        date_col: The name of the date column.
-        target_col: The name of the target column.
-        model_config: Configuration dictionary with model-specific parameters.
-        base_config: Configuration dictionary with base forecasting parameters.
-        
-    Returns:
-        Tuple of (forecast_df, metrics, plots)
+    Enhanced Holt-Winters forecast with proper metrics calculation
     """
     try:
-        # Combine model_config and base_config
+        print(f"DEBUG Holt-Winters: Starting with config: {model_config}")
+        print(f"DEBUG Holt-Winters: Data shape: {df.shape}")
+        
+        # Ensure we have the required configuration
         config = {**base_config, **model_config}
+        
+        # Validate seasonal periods
+        seasonal_periods = config.get('seasonal_periods', 12)
+        if len(df) < seasonal_periods * 2:
+            raise ValueError(f"Insufficient data for Holt-Winters: need at least {seasonal_periods * 2} points, got {len(df)}")
         
         # Initialize model
         model = HoltWintersEnhanced()
         
         # Prepare data
         train_data, val_data = model.prepare_data(
-            data, 
+            df, 
             date_col, 
             target_col,
             config.get('train_size', 0.8)
@@ -695,8 +688,71 @@ def run_holtwinters_forecast(
         # Create visualizations
         plots = model.create_visualizations()
         
+        # CRITICAL: Ensure metrics calculation includes MAPE
+        if not forecast_df.empty and len(val_data) > 0:
+            actual_values = val_data.values
+            fitted_values = model.fitted_model.fittedvalues[-len(val_data):]
+            
+            # Align lengths for metric calculation
+            min_len = min(len(actual_values), len(fitted_values))
+            actual_aligned = actual_values[-min_len:]
+            fitted_aligned = fitted_values[-min_len:]
+            
+            # Calculate metrics with proper error handling
+            try:
+                from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+                
+                # MAPE calculation with zero-division protection
+                def calculate_mape(actual, predicted):
+                    actual, predicted = np.array(actual), np.array(predicted)
+                    mask = actual != 0  # Avoid division by zero
+                    if mask.sum() == 0:
+                        return 100.0  # Return 100% error if all actual values are zero
+                    return np.mean(np.abs((actual[mask] - predicted[mask]) / actual[mask])) * 100
+                
+                metrics = {
+                    'mape': float(calculate_mape(actual_aligned, fitted_aligned)),
+                    'mae': float(mean_absolute_error(actual_aligned, fitted_aligned)),
+                    'rmse': float(np.sqrt(mean_squared_error(actual_aligned, fitted_aligned))),
+                    'r2': float(r2_score(actual_aligned, fitted_aligned))
+                }
+                
+                print(f"DEBUG Holt-Winters: Calculated metrics: {metrics}")
+                
+                # Validate MAPE
+                if not np.isfinite(metrics['mape']) or metrics['mape'] < 0:
+                    metrics['mape'] = 100.0  # Fallback value
+                    
+            except Exception as metric_error:
+                print(f"DEBUG Holt-Winters: Metrics calculation error: {metric_error}")
+                # Provide fallback metrics
+                metrics = {
+                    'mape': 100.0,  # High error as fallback
+                    'mae': 0.0,
+                    'rmse': 0.0,
+                    'r2': 0.0
+                }
+        else:
+            print(f"DEBUG Holt-Winters: Cannot calculate metrics - forecast_df empty: {forecast_df.empty}")
+            metrics = {
+                'mape': 100.0,  # High error as fallback
+                'mae': 0.0,
+                'rmse': 0.0,
+                'r2': 0.0
+            }
+        
+        print(f"DEBUG Holt-Winters: Final metrics returned: {metrics}")
         return forecast_df, metrics, plots
         
     except Exception as e:
-        st.error(f"Error in Holt-Winters forecasting: {str(e)}")
-        return pd.DataFrame(), {}, {}
+        print(f"DEBUG Holt-Winters: Exception occurred: {str(e)}")
+        import traceback
+        print(f"DEBUG Holt-Winters: Traceback: {traceback.format_exc()}")
+        
+        # Return empty results with fallback metrics
+        return pd.DataFrame(), {
+            'mape': 100.0,
+            'mae': 0.0,
+            'rmse': 0.0,
+            'r2': 0.0
+        }, {}

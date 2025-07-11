@@ -855,28 +855,21 @@ def run_sarima_forecast(
     target_col: str, 
     model_config: Dict[str, Any], 
     base_config: Dict[str, Any]
-) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, go.Figure]]:
+) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, Any]]:
     """
-    Main function to run SARIMA forecasting with enhanced features.
-    
-    Args:
-        data: Input DataFrame with date and target columns
-        date_col: Name of the date column
-        target_col: Name of the target column
-        model_config: Configuration dictionary with model-specific parameters
-        base_config: Configuration dictionary with general forecast parameters
-        
-    Returns:
-        Tuple of (forecast_df, metrics, plots)
+    Enhanced SARIMA forecast with proper metrics calculation
     """
     try:
-        # Check if SARIMA dependencies are available
-        if not SARIMA_AVAILABLE:
-            st.error("❌ SARIMA dependencies are not available. Please install required packages.")
-            return pd.DataFrame(), {}, {}
+        print(f"DEBUG SARIMA: Starting with config: {model_config}")
+        print(f"DEBUG SARIMA: Data shape: {data.shape}")
         
-        # Combine configs
+        # Ensure we have the required configuration
         config = {**base_config, **model_config}
+        
+        # Validate seasonal period
+        seasonal_period = config.get('seasonal_period', 12)
+        if len(data) < seasonal_period * 2:
+            raise ValueError(f"Insufficient data for SARIMA: need at least {seasonal_period * 2} points, got {len(data)}")
         
         # Initialize model
         model = SARIMAEnhanced()
@@ -911,8 +904,70 @@ def run_sarima_forecast(
         # Create visualizations
         plots = model.create_visualizations()
         
+        # CRITICAL: Ensure metrics calculation includes MAPE
+        if not forecast_df.empty and len(model.validation_data) > 0 and len(model.fitted_model.fittedvalues) > 0:
+            # Align lengths for metric calculation
+            actual_values = model.validation_data.values
+            fitted_values = model.fitted_model.fittedvalues.values
+            min_len = min(len(actual_values), len(fitted_values))
+            actual_aligned = actual_values[-min_len:]
+            fitted_aligned = fitted_values[-min_len:]
+            
+            # Calculate metrics with proper error handling
+            try:
+                from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+                
+                # MAPE calculation with zero-division protection
+                def calculate_mape(actual, predicted):
+                    actual, predicted = np.array(actual), np.array(predicted)
+                    mask = actual != 0  # Avoid division by zero
+                    if mask.sum() == 0:
+                        return 100.0  # Return 100% error if all actual values are zero
+                    return np.mean(np.abs((actual[mask] - predicted[mask]) / actual[mask])) * 100
+                
+                metrics = {
+                    'mape': float(calculate_mape(actual_aligned, fitted_aligned)),
+                    'mae': float(mean_absolute_error(actual_aligned, fitted_aligned)),
+                    'rmse': float(np.sqrt(mean_squared_error(actual_aligned, fitted_aligned))),
+                    'r2': float(r2_score(actual_aligned, fitted_aligned))
+                }
+                
+                print(f"DEBUG SARIMA: Calculated metrics: {metrics}")
+                
+                # Validate MAPE
+                if not np.isfinite(metrics['mape']) or metrics['mape'] < 0:
+                    metrics['mape'] = 100.0  # Fallback value
+                    
+            except Exception as metric_error:
+                print(f"DEBUG SARIMA: Metrics calculation error: {metric_error}")
+                # Provide fallback metrics
+                metrics = {
+                    'mape': 100.0,  # High error as fallback
+                    'mae': 0.0,
+                    'rmse': 0.0,
+                    'r2': 0.0
+                }
+        else:
+            print(f"DEBUG SARIMA: Cannot calculate metrics - forecast_df empty: {forecast_df.empty}")
+            metrics = {
+                'mape': 100.0,  # High error as fallback
+                'mae': 0.0,
+                'rmse': 0.0,
+                'r2': 0.0
+            }
+        
+        print(f"DEBUG SARIMA: Final metrics returned: {metrics}")
         return forecast_df, metrics, plots
         
     except Exception as e:
-        st.error(f"Error in SARIMA forecasting: {str(e)}")
-        return pd.DataFrame(), {}, {}
+        print(f"DEBUG SARIMA: Exception occurred: {str(e)}")
+        import traceback
+        print(f"DEBUG SARIMA: Traceback: {traceback.format_exc()}")
+        
+        # Return empty results with fallback metrics
+        return pd.DataFrame(), {
+            'mape': 100.0,
+            'mae': 0.0,
+            'rmse': 0.0,
+            'r2': 0.0
+        }, {}

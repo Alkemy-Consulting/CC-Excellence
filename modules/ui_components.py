@@ -174,50 +174,45 @@ try:
     from .sarima_module import render_sarima_config
 except ImportError:
     def render_sarima_config():
-        """Renderizza i parametri di configurazione per SARIMA"""
+        """Render SARIMA configuration with proper type conversion"""
         with st.expander("⚙️ SARIMA Configuration", expanded=False):
             config = {}
             
-            # Auto-SARIMA
-            config['auto_sarima'] = st.checkbox(
-                "Auto-SARIMA",
-                value=True,
-                help="Automatically find optimal parameters"
-            )
+            # Auto-SARIMA toggle
+            config['auto_sarima'] = st.checkbox("Auto-SARIMA", value=True, 
+                                               help="Automatically optimize SARIMA parameters")
             
             if not config['auto_sarima']:
-                # Non-seasonal parameters
-                st.subheader("📊 Non-Seasonal Parameters")
+                # Manual configuration with explicit type conversion
+                st.markdown("**Non-seasonal Parameters**")
+                col1, col2, col3 = st.columns(3)
                 
-                config['p'] = st.number_input("AR (p)", 0, 10, 1, key="sarima_p")
-                config['d'] = st.number_input("Diff (d)", 0, 5, 1, key="sarima_d")
-                config['q'] = st.number_input("MA (q)", 0, 10, 1, key="sarima_q")
+                with col1:
+                    config['p'] = int(st.number_input("p (AR order)", min_value=0, max_value=5, value=1))
+                with col2:
+                    config['d'] = int(st.number_input("d (Differencing)", min_value=0, max_value=2, value=1))
+                with col3:
+                    config['q'] = int(st.number_input("q (MA order)", min_value=0, max_value=5, value=1))
                 
-                # Seasonal parameters
-                st.subheader("🔄 Seasonal Parameters")
+                st.markdown("**Seasonal Parameters**")
+                col1, col2, col3, col4 = st.columns(4)
                 
-                config['P'] = st.number_input("Seasonal AR (P)", 0, 10, 1, key="sarima_P")
-                config['D'] = st.number_input("Seasonal Diff (D)", 0, 5, 1, key="sarima_D")
-                config['Q'] = st.number_input("Seasonal MA (Q)", 0, 10, 1, key="sarima_Q")
-                config['s'] = st.number_input("Season Length (s)", 1, 365, 12, key="sarima_s")
+                with col1:
+                    config['P'] = int(st.number_input("P (Seasonal AR)", min_value=0, max_value=3, value=1))
+                with col2:
+                    config['D'] = int(st.number_input("D (Seasonal Diff)", min_value=0, max_value=1, value=1))
+                with col3:
+                    config['Q'] = int(st.number_input("Q (Seasonal MA)", min_value=0, max_value=3, value=1))
+                with col4:
+                    config['seasonal_period'] = int(st.number_input("Seasonal Period", min_value=2, max_value=365, value=12))
             else:
-                st.subheader("🔍 Auto-SARIMA Configuration")
-                
-                config['max_p'] = st.number_input("Max p", 1, 5, 3, key="auto_sarima_max_p")
-                config['max_d'] = st.number_input("Max d", 1, 3, 2, key="auto_sarima_max_d")
-                config['max_q'] = st.number_input("Max q", 1, 5, 3, key="auto_sarima_max_q")
-                
-                config['max_P'] = st.number_input("Max P", 1, 3, 2, key="auto_sarima_max_P")
-                config['max_D'] = st.number_input("Max D", 1, 2, 1, key="auto_sarima_max_D")
-                config['max_Q'] = st.number_input("Max Q", 1, 3, 2, key="auto_sarima_max_Q")
-                
-                config['seasonal_period'] = st.number_input(
-                    "Seasonal Period",
-                    min_value=2,
-                    max_value=365,
-                    value=12,
-                    help="Length of seasonal cycle"
-                )
+                # Auto-SARIMA configuration with explicit defaults
+                config.update({
+                    'max_p': 3, 'max_d': 2, 'max_q': 3,
+                    'max_P': 2, 'max_D': 1, 'max_Q': 2,
+                    'seasonal_period': 12,
+                    'information_criterion': 'aic'
+                })
             
             return config
 
@@ -225,87 +220,68 @@ try:
     from .holtwinters_module import render_holtwinters_config
 except ImportError:
     def render_holtwinters_config():
-        """Renderizza i parametri di configurazione per Holt-Winters"""
+        """Render Holt-Winters configuration with proper type conversion"""
         with st.expander("⚙️ Holt-Winters Configuration", expanded=False):
             config = {}
             
-            # Auto-Holt-Winters option
-            st.subheader("🤖 Auto-Tuning")
-            config['auto_holt_winters'] = st.checkbox(
-                "Auto-Holt-Winters",
-                value=True,
-                help="Automatically optimize all Holt-Winters parameters including smoothing constants and seasonality"
-            )
+            # Auto-Holt-Winters toggle
+            config['auto_holtwinters'] = st.checkbox("Auto-Holt-Winters", value=True,
+                                                    help="Automatically optimize all Holt-Winters parameters")
             
-            if config['auto_holt_winters']:
-                st.info("🔍 Auto-tuning will optimize all parameters: trend type, seasonal type, smoothing constants (alpha, beta, gamma), and other model parameters")
+            if not config['auto_holtwinters']:
+                # Manual configuration with explicit type conversion
+                st.markdown("**Core Parameters**")
                 
-                # Set default values for auto mode
-                config['trend'] = 'add'
-                config['seasonal'] = 'add'
-                config['damped_trend'] = False
-                config['seasonal_periods'] = 12
-                config['smoothing_level'] = None
-                config['smoothing_trend'] = None
-                config['smoothing_seasonal'] = None
+                config['trend_type'] = st.selectbox("Trend Type", 
+                                                  options=['add', 'mul', None], 
+                                                  index=0,
+                                                  help="Type of trend component")
+                
+                config['seasonal_type'] = st.selectbox("Seasonal Type", 
+                                                  options=['add', 'mul', None], 
+                                                  index=0,
+                                                  help="Type of seasonal component")
+                
+                config['damped_trend'] = st.checkbox("Damped Trend", value=False,
+                                                   help="Apply damping to trend component")
+                
+                config['seasonal_periods'] = int(st.number_input("Seasonal Periods", 
+                                                               min_value=2, max_value=365, value=12,
+                                                               help="Number of periods in seasonal cycle"))
+                
+                # Smoothing parameters with explicit float conversion
+                st.markdown("**Smoothing Parameters**")
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if st.checkbox("Custom Alpha (Level)", value=False):
+                        config['alpha'] = float(st.slider("Alpha", min_value=0.01, max_value=1.0, value=0.2, step=0.01))
+                    else:
+                        config['alpha'] = None
+                
+                with col2:
+                    if config['trend_type'] and st.checkbox("Custom Beta (Trend)", value=False):
+                        config['beta'] = float(st.slider("Beta", min_value=0.01, max_value=1.0, value=0.1, step=0.01))
+                    else:
+                        config['beta'] = None
+                
+                with col3:
+                    if config['seasonal_type'] and st.checkbox("Custom Gamma (Seasonal)", value=False):
+                        config['gamma'] = float(st.slider("Gamma", min_value=0.01, max_value=1.0, value=0.1, step=0.01))
+                    else:
+                        config['gamma'] = None
             else:
-                # Manual configuration mode
-                st.subheader("🔧 Core Parameters")
-                
-                config['trend'] = st.selectbox(
-                    "Trend Type",
-                    ['add', 'mul', None],
-                    index=0,
-                    help="Type of trend component: additive, multiplicative, or none"
-                )
-                
-                config['seasonal'] = st.selectbox(
-                    "Seasonal Type",
-                    ['add', 'mul', None],
-                    index=0,
-                    help="Type of seasonal component: additive, multiplicative, or none"
-                )
-                
-                config['damped_trend'] = st.checkbox(
-                    "Damped Trend",
-                    value=False,
-                    help="Use damped trend to prevent over-forecasting"
-                )
-                
-                config['seasonal_periods'] = st.number_input(
-                    "Seasonal Periods",
-                    min_value=2,
-                    max_value=365,
-                    value=12,
-                    help="Number of periods in a complete seasonal cycle"
-                )
-                
-                # Smoothing parameters
-                st.subheader("📊 Smoothing Parameters")
-                
-                config['smoothing_level'] = st.slider(
-                    "Alpha (Level)",
-                    0.0, 1.0, 0.2, 0.01,
-                    help="Smoothing parameter for level"
-                )
-                
-                if config['trend'] is not None:
-                    config['smoothing_trend'] = st.slider(
-                        "Beta (Trend)",
-                        0.0, 1.0, 0.1, 0.01,
-                        help="Smoothing parameter for trend"
-                    )
-                else:
-                    config['smoothing_trend'] = None
-                
-                if config['seasonal'] is not None:
-                    config['smoothing_seasonal'] = st.slider(
-                        "Gamma (Seasonal)",
-                        0.0, 1.0, 0.1, 0.01,
-                        help="Smoothing parameter for seasonal"
-                    )
-                else:
-                    config['smoothing_seasonal'] = None
+                # Auto configuration with proper defaults
+                config.update({
+                    'trend_type': 'add',
+                    'seasonal_type': 'add', 
+                    'damped_trend': False,
+                    'seasonal_periods': 12,
+                    'alpha': None,  # Auto-optimize
+                    'beta': None,   # Auto-optimize
+                    'gamma': None   # Auto-optimize
+                })
             
             return config
 

@@ -233,7 +233,7 @@ def run_exploratory_analysis(df, date_col, target_col, freq, selected_metrics,
     st.subheader("2. Confronto Performance Modelli")
 
     # Importa le funzioni dei modelli qui per evitare import circolari
-    from .prophet_module import run_prophet_model
+    from .prophet_enhanced import run_prophet_model
     from .arima_module import run_arima_model
     from .sarima_module import run_sarima_model
     from .holtwinters_module import run_holt_winters_model
@@ -281,11 +281,14 @@ def run_exploratory_analysis(df, date_col, target_col, freq, selected_metrics,
             # FIX: Usa deepcopy per i parametri di Prophet per evitare side-effects
             current_params = copy.deepcopy(model_params) if model_name == "Prophet" else model_params
             
+            # Prepare arguments with params included
+            full_args = {**model_args, "params": current_params}
+            
             # Prima esecuzione: raccoglie le metriche (senza output visivi)
-            model_result = model_func(**model_args, params=current_params, return_metrics=True)
+            model_result = model_func(**full_args, return_metrics=True)
             
             # Seconda esecuzione: mostra i grafici e l'output completo (senza raccogliere metriche)
-            model_func(**model_args, params=current_params, return_metrics=False)
+            model_func(**full_args, return_metrics=False)
             
             # Salva le metriche del modello
             if model_result and isinstance(model_result, dict):

@@ -781,7 +781,12 @@ def run_arima_forecast(df: pd.DataFrame, date_col: str, target_col: str,
         if model_config.get('auto_arima', True):
             try:
                 from pmdarima import auto_arima
-                st.info("🔍 Auto-ARIMA: Finding optimal parameters...")
+                try:
+                    import streamlit as st
+                    st.info("🔍 Auto-ARIMA: Finding optimal parameters...")
+                except:
+                    print("🔍 Auto-ARIMA: Finding optimal parameters...")
+                    
                 auto_model = auto_arima(
                     time_series,
                     seasonal=False,
@@ -793,9 +798,17 @@ def run_arima_forecast(df: pd.DataFrame, date_col: str, target_col: str,
                     max_q=model_config.get('max_q', 3)
                 )
                 p, d, q = auto_model.order
-                st.success(f"✅ Optimal parameters found: ARIMA({p},{d},{q})")
+                try:
+                    import streamlit as st
+                    st.success(f"✅ Optimal parameters found: ARIMA({p},{d},{q})")
+                except:
+                    print(f"✅ Optimal parameters found: ARIMA({p},{d},{q})")
             except:
-                st.warning("Auto-ARIMA failed, using default parameters")
+                try:
+                    import streamlit as st
+                    st.warning("Auto-ARIMA failed, using default parameters")
+                except:
+                    print("Auto-ARIMA failed, using default parameters")
         
         # Crea e addestra il modello
         model = ARIMA(time_series, order=(p, d, q))
@@ -810,17 +823,37 @@ def run_arima_forecast(df: pd.DataFrame, date_col: str, target_col: str,
         last_date = pd.to_datetime(data[date_col].iloc[-1])
         future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_periods, freq='D')
         
-        # DataFrame risultato
+        # DataFrame risultato - gestisce sia DataFrame che numpy array per forecast_ci
+        if hasattr(forecast_ci, 'iloc'):
+            # forecast_ci è un DataFrame
+            lower_bound = forecast_ci.iloc[:, 0]
+            upper_bound = forecast_ci.iloc[:, 1]
+        else:
+            # forecast_ci è un numpy array
+            lower_bound = forecast_ci[:, 0]
+            upper_bound = forecast_ci[:, 1]
+        
         forecast_df = pd.DataFrame({
             date_col: future_dates,
             'forecast': forecast_result,
-            'lower_bound': forecast_ci.iloc[:, 0],
-            'upper_bound': forecast_ci.iloc[:, 1]
+            'lower_bound': lower_bound,
+            'upper_bound': upper_bound
         })
         
         # Calcola metriche sui dati di training
         fitted_values = fitted_model.fittedvalues
-        actual_values = time_series[fitted_model.model.k_diff:]  # Rimuovi i valori differenziati
+        
+        # Allinea le lunghezze per il calcolo delle metriche
+        if len(fitted_values) < len(time_series):
+            actual_values = time_series[-len(fitted_values):]
+        else:
+            actual_values = time_series
+            fitted_values = fitted_values[:len(actual_values)]
+        
+        # Assicurati che abbiano la stessa lunghezza
+        min_len = min(len(actual_values), len(fitted_values))
+        actual_values = actual_values[-min_len:]
+        fitted_values = fitted_values[-min_len:]
         
         metrics = {
             'mae': mean_absolute_error(actual_values, fitted_values),
@@ -883,8 +916,10 @@ def run_arima_forecast(df: pd.DataFrame, date_col: str, target_col: str,
         return forecast_df, metrics, plots
         
     except Exception as e:
-        st.error(f"Error in ARIMA forecasting: {str(e)}")
+        error_msg = f"Error in ARIMA forecasting: {str(e)}"
+        try:
+            import streamlit as st
+            st.error(error_msg)
+        except:
+            print(error_msg)
         return pd.DataFrame(), {}, {}
-
-# Alias per compatibilità con forecast_engine
-run_arima_forecast = run_arima_model
