@@ -45,7 +45,7 @@ root/
 │   ├── data_utils.py       # Preprocessing, outlier, freq inference
 │   ├── ui_components.py    # Wrapper widget coerenti
 │   ├── forecast_engine.py  # Orchestrazione click/session_state
-│   ├── prophet_module.py   # Prophet auto-tuning, backtest
+│   ├── prophet_module.py   # Prophet unificato con auto-tuning, regressori, CV
 │   ├── arima_module.py     # ARIMA/SARIMA auto_arima, backtest
 │   ├── holtwinters_module.py # Holt-Winters parametri ottimizzati
 │   ├── capacity_sizing.py  # Capacity sizing Erlang C

@@ -165,7 +165,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
         col1, col2, col3, col4, col5, col6 = st.columns(6)
 
         with col1:
-            st.metric("📊 Total Records", stats['total_records'])
+            st.metric("📊 Total Records", f"{stats['total_records']}")
         with col2:
             st.metric("📅 Date Range", f"{stats['date_range_days']} days")
         with col3:
@@ -239,11 +239,11 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
             xaxis=dict(
                 rangeselector=dict(
                     buttons=list([
-                        dict(count=1, label="1M", step="month", stepmode="backward"),
-                        dict(count=3, label="3M", step="month", stepmode="backward"),
-                        dict(count=6, label="6M", step="month", stepmode="backward"),
-                        dict(count=1, label="1Y", step="year", stepmode="backward"),
-                        dict(count=2, label="2Y", step="year", stepmode="backward"),
+                        dict(count=30, label="1M", step="day", stepmode="backward"),
+                        dict(count=90, label="3M", step="day", stepmode="backward"),
+                        dict(count=180, label="6M", step="day", stepmode="backward"),
+                        dict(count=365, label="1Y", step="day", stepmode="backward"),
+                        dict(count=730, label="2Y", step="day", stepmode="backward"),
                         dict(step="all", label="All")
                     ]),
                     x=0.02,  # Position range selector at left (2% from left edge)
@@ -275,21 +275,21 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
         
         with col1:
             if stats['missing_values'] > 0:
-                st.metric("❌ Missing Values", f"{stats['missing_values']} ({stats['missing_percentage']:.1f}%)")
+                st.metric("❌ Missing Values", f"{stats['missing_values']} ({stats['missing_percentage']:.2f}%)")
             else:
-                st.metric("✅ Missing Values", "0 (0.0%)")
+                st.metric("✅ Missing Values", "0 (0.00%)")
         
         with col2:
             if stats.get('duplicate_dates', 0) > 0:
-                st.metric("🔄 Duplicate Dates", stats['duplicate_dates'])
+                st.metric("🔄 Duplicate Dates", f"{stats['duplicate_dates']}")
             else:
                 st.metric("✅ Duplicate Dates", "0")
         
         with col3:
             if outlier_stats['count'] > 0:
-                st.metric("⚠️ Outliers", f"{outlier_stats['count']} ({outlier_stats['percentage']:.1f}%)")
+                st.metric("⚠️ Outliers", f"{outlier_stats['count']} ({outlier_stats['percentage']:.2f}%)")
             else:
-                st.metric("✅ Outliers", "0 (0.0%)")
+                st.metric("✅ Outliers", "0 (0.00%)")
         
         with col4:
             # Detected frequency
@@ -336,7 +336,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
         
         if stats['missing_percentage'] > 5:
             quality_score -= 20
-            issues.append(f"High missing values ({stats['missing_percentage']:.1f}%)")
+            issues.append(f"High missing values ({stats['missing_percentage']:.2f}%)")
         
         if stats.get('duplicate_dates', 0) > 0:
             quality_score -= 15
@@ -344,7 +344,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
         
         if outlier_stats['percentage'] > 10:
             quality_score -= 15
-            issues.append(f"High outlier percentage ({outlier_stats['percentage']:.1f}%)")
+            issues.append(f"High outlier percentage ({outlier_stats['percentage']:.2f}%)")
         
         # Calculate variance
         if stats['std_value'] == 0:
@@ -475,11 +475,11 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                     xaxis=dict(
                         rangeselector=dict(
                             buttons=list([
-                                dict(count=1, label="1M", step="month", stepmode="backward"),
-                                dict(count=3, label="3M", step="month", stepmode="backward"),
-                                dict(count=6, label="6M", step="month", stepmode="backward"),
-                                dict(count=1, label="1Y", step="year", stepmode="backward"),
-                                dict(count=2, label="2Y", step="year", stepmode="backward"),
+                                dict(count=30, label="1M", step="day", stepmode="backward"),
+                                dict(count=90, label="3M", step="day", stepmode="backward"),
+                                dict(count=180, label="6M", step="day", stepmode="backward"),
+                                dict(count=365, label="1Y", step="day", stepmode="backward"),
+                                dict(count=730, label="2Y", step="day", stepmode="backward"),
                                 dict(step="all", label="All")
                             ]),
                             x=0.02,  # Position range selector at left (2% from left edge)
@@ -506,7 +506,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                 
                 with col2:
                     seasonal_strength = np.std(decomposition.seasonal.dropna()) / np.std(decomposition.observed.dropna()) * 100
-                    st.metric("Seasonal Strength", f"{seasonal_strength:.1f}%")
+                    st.metric("Seasonal Strength", f"{seasonal_strength:.2f}%")
                 
                 with col3:
                     residual_variance = np.var(decomposition.resid.dropna())
@@ -871,6 +871,91 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
         else:
             # Show message to run forecast if no results available yet
             st.warning("⚠️ **Nessun risultato di forecasting disponibile.** Configura le impostazioni del modello nella barra laterale e clicca su 'Run Forecast' per vedere i risultati.")
+            
+            # Preview Parameters Box - Prevenzione errori utente
+            with st.expander("🔍 **Preview Parametri di Forecasting**", expanded=False):
+                st.markdown("### 📋 Configurazione Attuale")
+                
+                # Get current configurations
+                selected_model = st.session_state.get('selected_model', 'Prophet')
+                forecast_config = st.session_state.get('forecast_config', {
+                    'forecast_periods': 30,
+                    'confidence_interval': 0.95
+                })
+                model_configs = st.session_state.get('model_configs', {})
+                
+                # Display current model selection
+                st.markdown(f"**🤖 Modello Selezionato**: {selected_model}")
+                
+                # Display forecast configuration
+                st.markdown("**⚙️ Configurazione Forecast:**")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown(f"- **Periodi da prevedere**: {forecast_config.get('forecast_periods', 30)}")
+                with col2:
+                    st.markdown(f"- **Intervallo di confidenza**: {forecast_config.get('confidence_interval', 0.95):.2f}")
+                
+                # Display model-specific parameters
+                if selected_model in model_configs:
+                    model_config = model_configs[selected_model]
+                    st.markdown(f"**🎛️ Parametri Specifici {selected_model}:**")
+                    
+                    if selected_model == "Prophet":
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown(f"- **Crescita**: {model_config.get('growth', 'linear')}")
+                            st.markdown(f"- **Stagionalità annuale**: {'Abilitata' if model_config.get('yearly_seasonality', True) else 'Disabilitata'}")
+                        with col2:
+                            st.markdown(f"- **Stagionalità settimanale**: {'Abilitata' if model_config.get('weekly_seasonality', True) else 'Disabilitata'}")
+                            st.markdown(f"- **Auto-tuning**: {'Abilitato' if model_config.get('enable_auto_tuning', False) else 'Disabilitato'}")
+                    
+                    elif "ARIMA" in selected_model:
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown(f"- **Ordine p**: {model_config.get('p', 'Auto')}")
+                            st.markdown(f"- **Differenziazione d**: {model_config.get('d', 'Auto')}")
+                        with col2:
+                            st.markdown(f"- **Ordine q**: {model_config.get('q', 'Auto')}")
+                            st.markdown(f"- **Auto-ARIMA**: {'Abilitato' if model_config.get('enable_auto_arima', True) else 'Disabilitato'}")
+                    
+                    elif "Holt" in selected_model:
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown(f"- **Tipo stagionalità**: {model_config.get('seasonal_type', 'add')}")
+                            st.markdown(f"- **Periodi stagionali**: {model_config.get('seasonal_periods', 'Auto')}")
+                        with col2:
+                            st.markdown(f"- **Trend smorzato**: {'Abilitato' if model_config.get('damped_trend', False) else 'Disabilitato'}")
+                            st.markdown(f"- **Auto-tuning**: {'Abilitato' if model_config.get('enable_auto_tuning', False) else 'Disabilitato'}")
+                
+                else:
+                    st.info("🔧 **Parametri di default** verranno utilizzati per il modello selezionato.")
+                
+                # Data summary
+                if st.session_state.get('cleaned_data') is not None:
+                    df_clean = st.session_state.cleaned_data
+                    st.markdown("**📊 Riassunto Dati:**")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.markdown(f"- **Record totali**: {len(df_clean)}")
+                    with col2:
+                        st.markdown(f"- **Colonna data**: {st.session_state.get('date_col', 'N/A')}")
+                    with col3:
+                        st.markdown(f"- **Colonna target**: {st.session_state.get('target_col', 'N/A')}")
+                
+                # Validation warnings
+                warnings = []
+                if forecast_config.get('forecast_periods', 30) > len(df_clean) * 0.5:
+                    warnings.append("⚠️ Periodo di previsione molto lungo rispetto ai dati storici")
+                
+                if selected_model == "Auto-Select" and len(model_configs) == 0:
+                    warnings.append("⚠️ Auto-Select senza configurazioni specifiche userà parametri di default")
+                
+                if warnings:
+                    st.markdown("**🚨 Avvisi:**")
+                    for warning in warnings:
+                        st.markdown(f"- {warning}")
+                else:
+                    st.success("✅ **Configurazione validata** - Pronto per l'esecuzione!")
 
 # Navigation section - shown when forecast results are available
 if st.session_state.data_loaded and st.session_state.get('forecast_results_available', False):

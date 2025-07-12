@@ -233,7 +233,7 @@ def run_exploratory_analysis(df, date_col, target_col, freq, selected_metrics,
     st.subheader("2. Confronto Performance Modelli")
 
     # Importa le funzioni dei modelli qui per evitare import circolari
-    from .prophet_enhanced import run_prophet_model
+    from .prophet_module import run_prophet_forecast
     from .arima_module import run_arima_model
     from .sarima_module import run_sarima_model
     from .holtwinters_module import run_holt_winters_model
@@ -263,7 +263,7 @@ def run_exploratory_analysis(df, date_col, target_col, freq, selected_metrics,
 
     # Definizione dei modelli da eseguire con i loro parametri specifici
     models_to_run = {
-        "Prophet": (run_prophet_model, prophet_model_args, prophet_params),
+        "Prophet": (run_prophet_forecast, prophet_model_args, prophet_params),
         "ARIMA": (run_arima_model, base_model_args, arima_params),
         "SARIMA": (run_sarima_model, base_model_args, sarima_params),
         "Holt-Winters": (run_holt_winters_model, base_model_args, holtwinters_params)

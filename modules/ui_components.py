@@ -44,36 +44,80 @@ except ImportError:
                     help="Forecast horizon for parameter tuning"
                 )
             
-            # Core parameters
+            # Cross-Validation Settings
+            st.subheader("📊 Cross-Validation")
+            config['enable_cross_validation'] = st.checkbox(
+                "Enable Cross-Validation",
+                value=False,
+                help="Perform time series cross-validation for model assessment"
+            )
+            
+            if config['enable_cross_validation']:
+                col1, col2 = st.columns(2)
+                with col1:
+                    config['cv_horizon'] = st.slider(
+                        "CV Horizon (days)",
+                        min_value=7,
+                        max_value=60,
+                        value=30,
+                        help="Forecast horizon for each CV fold"
+                    )
+                with col2:
+                    config['cv_folds'] = st.slider(
+                        "Number of Folds",
+                        min_value=3,
+                        max_value=10,
+                        value=5,
+                        help="Number of cross-validation folds"
+                    )
+            
+            # Holiday Effects
+            st.subheader("🎉 Holiday Effects")
+            config['add_holidays'] = st.checkbox(
+                "Add Holiday Effects",
+                value=False,
+                help="Include country-specific holidays in the model"
+            )
+            
+            if config['add_holidays']:
+                config['holidays_country'] = st.selectbox(
+                    "Select Country",
+                    options=['US', 'CA', 'UK', 'DE', 'FR', 'IT', 'ES', 'AU', 'JP'],
+                    index=0,
+                    help="Country for holiday calendar"
+                )
+            
+            # Core parameters - sempre visibili ma disabilitati quando auto è attivo
             st.subheader("🔧 Core Parameters")
             
-            if not config['auto_tune']:
-                config['changepoint_prior_scale'] = st.slider(
-                    "Trend Flexibility",
-                    min_value=0.001,
-                    max_value=0.5,
-                    value=0.05,
-                    step=0.001,
-                    format="%.3f",
-                    help="Controls trend flexibility. Higher values = more flexible trend"
-                )
-                
-                config['seasonality_prior_scale'] = st.slider(
-                    "Seasonality Strength",
-                    min_value=0.01,
-                    max_value=10.0,
-                    value=10.0,
-                    step=0.01,
-                    help="Controls seasonality strength. Higher values = stronger seasonality"
-                )
-            else:
-                config['changepoint_prior_scale'] = 0.05
-                config['seasonality_prior_scale'] = 10.0
+            is_disabled = config['auto_tune']
+            
+            config['changepoint_prior_scale'] = st.slider(
+                "Trend Flexibility",
+                min_value=0.001,
+                max_value=0.5,
+                value=0.05,
+                step=0.001,
+                format="%.3f",
+                disabled=is_disabled,
+                help="Controls trend flexibility. Higher values = more flexible trend"
+            )
+            
+            config['seasonality_prior_scale'] = st.slider(
+                "Seasonality Strength",
+                min_value=0.01,
+                max_value=10.0,
+                value=10.0,
+                step=0.01,
+                disabled=is_disabled,
+                help="Controls seasonality strength. Higher values = stronger seasonality"
+            )
             
             config['seasonality_mode'] = st.selectbox(
                 "Seasonality Mode",
                 ['additive', 'multiplicative'],
                 index=0,
+                disabled=is_disabled,
                 help="How seasonality affects the trend"
             )
             
@@ -83,6 +127,7 @@ except ImportError:
                 max_value=2000,
                 value=1000,
                 step=100,
+                disabled=is_disabled,
                 help="Number of samples for uncertainty estimation"
             )
             
@@ -93,6 +138,7 @@ except ImportError:
                 "Yearly Seasonality",
                 ['auto', True, False],
                 index=0,
+                disabled=is_disabled,
                 help="Automatically detect or manually set yearly patterns"
             )
             
@@ -100,6 +146,7 @@ except ImportError:
                 "Weekly Seasonality", 
                 ['auto', True, False],
                 index=0,
+                disabled=is_disabled,
                 help="Automatically detect or manually set weekly patterns"
             )
             
@@ -107,7 +154,47 @@ except ImportError:
                 "Daily Seasonality",
                 ['auto', True, False],
                 index=0,
+                disabled=is_disabled,
                 help="Automatically detect or manually set daily patterns"
+            )
+            
+            # Growth Model Configuration
+            st.subheader("📈 Growth Model")
+            config['growth'] = st.selectbox(
+                "Growth Model",
+                options=['linear', 'logistic'],
+                index=0,
+                help="Type of growth trend"
+            )
+            
+            if config['growth'] == 'logistic':
+                st.warning("⚠️ Logistic growth requires 'cap' column in data")
+            
+            # Visualization Options
+            st.subheader("🎨 Visualization Options")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                config['show_components'] = st.checkbox(
+                    "Show Component Plots",
+                    value=True,
+                    help="Display trend, seasonal, and holiday components"
+                )
+            
+            with col2:
+                config['show_residuals'] = st.checkbox(
+                    "Show Residuals Analysis",
+                    value=True,
+                    help="Display residuals plot for model diagnostics"
+                )
+            
+            config['plot_height'] = st.slider(
+                "Plot Height (px)",
+                min_value=300,
+                max_value=800,
+                value=500,
+                step=50,
+                help="Height of forecast plots"
             )
             
             return config
@@ -127,33 +214,39 @@ except ImportError:
                 help="Automatically find optimal parameters using statistical tests"
             )
             
-            if not config['auto_arima']:
-                st.subheader("📊 Manual ARIMA Parameters")
-                
-                config['p'] = st.number_input(
-                    "AR Order (p)",
-                    min_value=0,
-                    max_value=10,
-                    value=1,
-                    help="Autoregressive order - number of lag observations"
-                )
-                
-                config['d'] = st.number_input(
-                    "Differencing (d)",
-                    min_value=0,
-                    max_value=5,
-                    value=1,
-                    help="Degree of differencing to make series stationary"
-                )
-                
-                config['q'] = st.number_input(
-                    "MA Order (q)",
-                    min_value=0,
-                    max_value=10,
-                    value=1,
-                    help="Moving average order - size of moving average window"
-                )
-            else:
+            # Manual parameters - sempre visibili ma disabilitati quando auto è attivo
+            st.subheader("📊 Manual ARIMA Parameters")
+            
+            is_disabled = config['auto_arima']
+            
+            config['p'] = st.number_input(
+                "AR Order (p)",
+                min_value=0,
+                max_value=10,
+                value=1,
+                disabled=is_disabled,
+                help="Autoregressive order - number of lag observations"
+            )
+            
+            config['d'] = st.number_input(
+                "Differencing (d)",
+                min_value=0,
+                max_value=5,
+                value=1,
+                disabled=is_disabled,
+                help="Degree of differencing to make series stationary"
+            )
+            
+            config['q'] = st.number_input(
+                "MA Order (q)",
+                min_value=0,
+                max_value=10,
+                value=1,
+                disabled=is_disabled,
+                help="Moving average order - size of moving average window"
+            )
+            
+            if config['auto_arima']:
                 st.subheader("🔍 Auto-ARIMA Configuration")
                 
                 config['max_p'] = st.number_input("Max AR Order", min_value=1, max_value=10, value=5)
@@ -182,35 +275,37 @@ except ImportError:
             config['auto_sarima'] = st.checkbox("Auto-SARIMA", value=True, 
                                                help="Automatically optimize SARIMA parameters")
             
-            if not config['auto_sarima']:
-                # Manual configuration with explicit type conversion
-                st.markdown("**Non-seasonal Parameters**")
-                col1, col2, col3 = st.columns(3)
+            is_disabled = config['auto_sarima']
+            
+            # Manual configuration - sempre visibili ma disabilitati quando auto è attivo
+            st.markdown("**Non-seasonal Parameters**")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                config['p'] = int(st.number_input("p (AR order)", min_value=0, max_value=5, value=1, disabled=is_disabled))
+            with col2:
+                config['d'] = int(st.number_input("d (Differencing)", min_value=0, max_value=2, value=1, disabled=is_disabled))
+            with col3:
+                config['q'] = int(st.number_input("q (MA order)", min_value=0, max_value=5, value=1, disabled=is_disabled))
+            
+            st.markdown("**Seasonal Parameters**")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                config['P'] = int(st.number_input("P (Seasonal AR)", min_value=0, max_value=3, value=1, disabled=is_disabled))
+            with col2:
+                config['D'] = int(st.number_input("D (Seasonal Diff)", min_value=0, max_value=1, value=1, disabled=is_disabled))
+            with col3:
+                config['Q'] = int(st.number_input("Q (Seasonal MA)", min_value=0, max_value=3, value=1, disabled=is_disabled))
+            with col4:
+                config['seasonal_period'] = int(st.number_input("Seasonal Period", min_value=2, max_value=365, value=12, disabled=is_disabled))
                 
-                with col1:
-                    config['p'] = int(st.number_input("p (AR order)", min_value=0, max_value=5, value=1))
-                with col2:
-                    config['d'] = int(st.number_input("d (Differencing)", min_value=0, max_value=2, value=1))
-                with col3:
-                    config['q'] = int(st.number_input("q (MA order)", min_value=0, max_value=5, value=1))
-                
-                st.markdown("**Seasonal Parameters**")
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    config['P'] = int(st.number_input("P (Seasonal AR)", min_value=0, max_value=3, value=1))
-                with col2:
-                    config['D'] = int(st.number_input("D (Seasonal Diff)", min_value=0, max_value=1, value=1))
-                with col3:
-                    config['Q'] = int(st.number_input("Q (Seasonal MA)", min_value=0, max_value=3, value=1))
-                with col4:
-                    config['seasonal_period'] = int(st.number_input("Seasonal Period", min_value=2, max_value=365, value=12))
-            else:
-                # Auto-SARIMA configuration with explicit defaults
+            if config['auto_sarima']:
+                # Auto-SARIMA configuration con parametri avanzati
+                st.markdown("**🔍 Auto-SARIMA Configuration**")
                 config.update({
                     'max_p': 3, 'max_d': 2, 'max_q': 3,
                     'max_P': 2, 'max_D': 1, 'max_Q': 2,
-                    'seasonal_period': 12,
                     'information_criterion': 'aic'
                 })
             
@@ -228,60 +323,61 @@ except ImportError:
             config['auto_holtwinters'] = st.checkbox("Auto-Holt-Winters", value=True,
                                                     help="Automatically optimize all Holt-Winters parameters")
             
-            if not config['auto_holtwinters']:
-                # Manual configuration with explicit type conversion
-                st.markdown("**Core Parameters**")
-                
-                config['trend_type'] = st.selectbox("Trend Type", 
-                                                  options=['add', 'mul', None], 
-                                                  index=0,
-                                                  help="Type of trend component")
-                
-                config['seasonal_type'] = st.selectbox("Seasonal Type", 
-                                                  options=['add', 'mul', None], 
-                                                  index=0,
-                                                  help="Type of seasonal component")
-                
-                config['damped_trend'] = st.checkbox("Damped Trend", value=False,
-                                                   help="Apply damping to trend component")
-                
-                config['seasonal_periods'] = int(st.number_input("Seasonal Periods", 
-                                                               min_value=2, max_value=365, value=12,
-                                                               help="Number of periods in seasonal cycle"))
-                
-                # Smoothing parameters with explicit float conversion
-                st.markdown("**Smoothing Parameters**")
-                
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    if st.checkbox("Custom Alpha (Level)", value=False):
-                        config['alpha'] = float(st.slider("Alpha", min_value=0.01, max_value=1.0, value=0.2, step=0.01))
-                    else:
-                        config['alpha'] = None
-                
-                with col2:
-                    if config['trend_type'] and st.checkbox("Custom Beta (Trend)", value=False):
-                        config['beta'] = float(st.slider("Beta", min_value=0.01, max_value=1.0, value=0.1, step=0.01))
-                    else:
-                        config['beta'] = None
-                
-                with col3:
-                    if config['seasonal_type'] and st.checkbox("Custom Gamma (Seasonal)", value=False):
-                        config['gamma'] = float(st.slider("Gamma", min_value=0.01, max_value=1.0, value=0.1, step=0.01))
-                    else:
-                        config['gamma'] = None
-            else:
-                # Auto configuration with proper defaults
-                config.update({
-                    'trend_type': 'add',
-                    'seasonal_type': 'add', 
-                    'damped_trend': False,
-                    'seasonal_periods': 12,
-                    'alpha': None,  # Auto-optimize
-                    'beta': None,   # Auto-optimize
-                    'gamma': None   # Auto-optimize
-                })
+            is_disabled = config['auto_holtwinters']
+            
+            # Manual configuration - sempre visibili ma disabilitati quando auto è attivo
+            st.markdown("**Core Parameters**")
+            
+            config['trend_type'] = st.selectbox("Trend Type", 
+                                              options=['add', 'mul', None], 
+                                              index=0,
+                                              disabled=is_disabled,
+                                              help="Type of trend component")
+            
+            config['seasonal_type'] = st.selectbox("Seasonal Type", 
+                                              options=['add', 'mul', None], 
+                                              index=0,
+                                              disabled=is_disabled,
+                                              help="Type of seasonal component")
+            
+            config['damped_trend'] = st.checkbox("Damped Trend", value=False,
+                                               disabled=is_disabled,
+                                               help="Apply damping to trend component")
+            
+            config['seasonal_periods'] = int(st.number_input("Seasonal Periods", 
+                                                           min_value=2, max_value=365, value=12,
+                                                           disabled=is_disabled,
+                                                           help="Number of periods in seasonal cycle"))
+            
+            # Smoothing parameters - sempre visibili ma con logica migliorata
+            st.markdown("**Smoothing Parameters**")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                use_custom_alpha = st.checkbox("Custom Alpha (Level)", value=False, disabled=is_disabled)
+                if use_custom_alpha and not is_disabled:
+                    config['alpha'] = float(st.slider("Alpha", min_value=0.01, max_value=1.0, value=0.2, step=0.01))
+                else:
+                    config['alpha'] = None
+            
+            with col2:
+                use_custom_beta = st.checkbox("Custom Beta (Trend)", value=False, disabled=is_disabled)
+                if use_custom_beta and not is_disabled and config['trend_type']:
+                    config['beta'] = float(st.slider("Beta", min_value=0.01, max_value=1.0, value=0.1, step=0.01))
+                else:
+                    config['beta'] = None
+            
+            with col3:
+                use_custom_gamma = st.checkbox("Custom Gamma (Seasonal)", value=False, disabled=is_disabled)
+                if use_custom_gamma and not is_disabled and config['seasonal_type']:
+                    config['gamma'] = float(st.slider("Gamma", min_value=0.01, max_value=1.0, value=0.1, step=0.01))
+                else:
+                    config['gamma'] = None
+                    
+            if config['auto_holtwinters']:
+                # Auto configuration reminder
+                st.info("🔍 **Auto-optimization enabled** - parameters will be automatically optimized")
             
             return config
 
@@ -798,6 +894,41 @@ def render_external_regressors_section(df: pd.DataFrame, date_col: str, target_c
         if selected_regressors:
             st.success(f"✅ Selected {len(selected_regressors)} regressors.")
             regressor_config['selected_regressors'] = selected_regressors
+            
+            # Configure future value methods for each regressor
+            st.markdown("**Regressor Configuration:**")
+            regressor_configs = {}
+            
+            for regressor in selected_regressors:
+                with st.container():
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown(f"**{regressor}**")
+                        future_method = st.selectbox(
+                            f"Future values method",
+                            options=['last_value', 'mean', 'trend', 'manual'],
+                            index=0,
+                            key=f"method_{regressor}",
+                            help="How to handle future values for this regressor"
+                        )
+                    
+                    with col2:
+                        if future_method == 'manual':
+                            future_value = st.number_input(
+                                f"Future value",
+                                value=0.0,
+                                key=f"value_{regressor}",
+                                help="Constant value for future periods"
+                            )
+                            regressor_configs[regressor] = {
+                                'future_method': future_method,
+                                'future_value': future_value
+                            }
+                        else:
+                            regressor_configs[regressor] = {'future_method': future_method}
+            
+            regressor_config['regressor_configs'] = regressor_configs
 
     return regressor_config
 
