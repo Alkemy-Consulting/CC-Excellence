@@ -4,6 +4,8 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
+import datetime
+import json
 import io
 import warnings
 
@@ -961,271 +963,679 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
         # Advanced Diagnostic Tab - only show if forecast results are available
         if st.session_state.get('forecast_results_available', False):
             st.markdown("## 🔬 Advanced Diagnostic Dashboard")
-            st.markdown("Diagnostic avanzate per valutare la qualità del modello di forecasting e identificare possibili miglioramenti.")
+            st.markdown("Analisi completa del modello di forecasting con suggerimenti pratici per migliorare l'accuratezza delle previsioni.")
             
-            # === MENU ESPANDIBILE PER DIAGNOSTICHE ===
-            with st.expander("📊 **Capitolo 1: Performance Metrics & Model Quality**", expanded=False):
-                st.markdown("### 📈 Model Performance Overview")
+            # === KEY INSIGHTS AND RECOMMENDATIONS (TOP SECTION) ===
+            st.markdown("---")
+            st.markdown("## 🎯 **Principali Insights e Raccomandazioni**")
+            
+            # Get metrics for analysis
+            if hasattr(st.session_state, 'last_forecast_metrics'):
+                metrics = st.session_state.last_forecast_metrics
                 
-                # Get current forecast metrics
-                if hasattr(st.session_state, 'last_forecast_metrics'):
-                    metrics = st.session_state.last_forecast_metrics
-                    
-                    # Quality Score Calculation
-                    quality_score = 100
-                    quality_issues = []
-                    
-                    if 'mape' in metrics:
-                        mape_val = metrics['mape']
-                        if mape_val > 50:
-                            quality_score -= 40
-                            quality_issues.append(f"MAPE molto alto ({mape_val:.2f}%)")
-                        elif mape_val > 20:
-                            quality_score -= 20
-                            quality_issues.append(f"MAPE elevato ({mape_val:.2f}%)")
-                    
-                    if 'r2' in metrics:
-                        r2_val = metrics['r2']
-                        if r2_val < 0.5:
-                            quality_score -= 30
-                            quality_issues.append(f"R² basso ({r2_val:.3f})")
-                        elif r2_val < 0.7:
-                            quality_score -= 15
-                            quality_issues.append(f"R² moderato ({r2_val:.3f})")
-                    
-                    # Display Quality Score
-                    col1, col2, col3 = st.columns([1, 2, 1])
-                    with col2:
-                        if quality_score >= 80:
-                            st.success(f"🎯 **Excellent Model Quality**: {quality_score}/100")
-                        elif quality_score >= 60:
-                            st.warning(f"⚠️ **Good Model Quality**: {quality_score}/100")
-                        else:
-                            st.error(f"❌ **Poor Model Quality**: {quality_score}/100")
-                    
-                    # Quality Issues
-                    if quality_issues:
-                        st.markdown("#### 🚨 Quality Issues Detected:")
-                        for issue in quality_issues:
-                            st.markdown(f"- {issue}")
+                # Quality Score Calculation
+                quality_score = 100
+                quality_issues = []
+                recommendations = []
+                
+                if 'mape' in metrics:
+                    mape_val = metrics['mape']
+                    if mape_val <= 10:
+                        st.success("� **MAPE Eccellente (≤10%)** - Le tue previsioni sono molto accurate!")
+                    elif mape_val <= 20:
+                        st.success("🟡 **MAPE Buono (10-20%)** - Previsioni accurate con margine di miglioramento")
+                        recommendations.append("💡 Per migliorare ulteriormente: considera l'aggiunta di regressori esterni o l'ottimizzazione dei parametri di stagionalità")
+                    elif mape_val <= 50:
+                        st.warning("🟠 **MAPE Accettabile (20-50%)** - Previsioni utilizzabili ma con errori significativi")
+                        recommendations.append("⚠️ Azioni consigliate: verifica la presenza di outliers, considera modelli più complessi o aggiungi festività specifiche del tuo dominio")
+                        quality_issues.append(f"MAPE elevato ({mape_val:.2f}%)")
                     else:
-                        st.success("✅ No significant quality issues detected!")
-                    
-                    # Detailed Metrics Table
-                    st.markdown("#### 📊 Detailed Performance Metrics")
-                    
-                    metrics_display = []
-                    for metric_name, metric_value in metrics.items():
-                        if isinstance(metric_value, (int, float)):
+                        st.error("🔴 **MAPE Scarso (>50%)** - Previsioni poco affidabili")
+                        recommendations.append("🚨 Azioni urgenti: rivedi la qualità dei dati, considera preprocessing aggiuntivo, prova modelli alternativi")
+                        quality_issues.append(f"MAPE molto alto ({mape_val:.2f}%)")
+                
+                if 'r2' in metrics:
+                    r2_val = metrics['r2']
+                    if r2_val >= 0.8:
+                        st.success("🟢 **R² Eccellente (≥0.8)** - Il modello spiega molto bene la varianza dei dati")
+                    elif r2_val >= 0.6:
+                        st.success("🟡 **R² Buono (0.6-0.8)** - Buona capacità esplicativa del modello")
+                    elif r2_val >= 0.4:
+                        st.warning("🟠 **R² Moderato (0.4-0.6)** - Il modello cattura solo parte della varianza")
+                        recommendations.append("💡 Per migliorare R²: considera l'aggiunta di trend più complessi o componenti stagionali aggiuntive")
+                        quality_issues.append(f"R² moderato ({r2_val:.3f})")
+                    else:
+                        st.error("🔴 **R² Basso (<0.4)** - Scarsa spiegazione della varianza")
+                        recommendations.append("🚨 Considera: modelli più sofisticati, più dati storici, o regressori esterni rilevanti")
+                        quality_issues.append(f"R² basso ({r2_val:.3f})")
+                
+                # Display actionable recommendations
+                if recommendations:
+                    st.markdown("### 💡 **Raccomandazioni Pratiche per Migliorare le Previsioni:**")
+                    for i, rec in enumerate(recommendations, 1):
+                        st.markdown(f"{i}. {rec}")
+                
+                # Key parameter suggestions
+                st.markdown("### 🔧 **Suggerimenti per Ottimizzazione Parametri:**")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("""
+                    **📅 Gestione Eventi e Festività:**
+                    - Abilita festività nazionali se il tuo business è influenzato
+                    - Aggiungi eventi speciali del tuo settore (saldi, campagne marketing)
+                    - Considera festività regionali se operi in aree specifiche
+                    """)
+                
+                with col2:
+                    st.markdown("""
+                    **⚙️ Tuning Tecnico del Modello:**
+                    - Aumenta `changepoint_prior_scale` se i trend cambiano spesso
+                    - Riduci `seasonality_prior_scale` se la stagionalità è molto regolare
+                    - Prova crescita logistica per dati con saturazione naturale
+                    """)
+            
+            st.markdown("---")
+            
+            # === DETAILED ANALYSIS SECTIONS ===
+            st.markdown("## 📊 **Analisi Dettagliata delle Componenti**")
+            
+            # === PERFORMANCE METRICS SECTION ===
+            st.markdown("### 📈 **1. Metriche di Performance del Modello**")
+            # === PERFORMANCE METRICS SECTION ===
+            st.markdown("### 📈 **1. Metriche di Performance del Modello**")
+            
+            if hasattr(st.session_state, 'last_forecast_metrics'):
+                metrics = st.session_state.last_forecast_metrics
+                
+                # Display metrics in a comprehensive table
+                col1, col2, col3, col4 = st.columns(4)
+                
+                # Key metrics display
+                for i, (metric_name, metric_value) in enumerate(metrics.items()):
+                    if isinstance(metric_value, (int, float)):
+                        col = [col1, col2, col3, col4][i % 4]
+                        
+                        with col:
+                            # Add interpretation for each metric
                             interpretation = ""
+                            color = "normal"
+                            
                             if metric_name.lower() == 'mape':
                                 if metric_value <= 10:
-                                    interpretation = "Excellent (≤10%)"
+                                    interpretation, color = "Eccellente", "green"
                                 elif metric_value <= 20:
-                                    interpretation = "Good (10-20%)"
+                                    interpretation, color = "Buono", "blue"
                                 elif metric_value <= 50:
-                                    interpretation = "Acceptable (20-50%)"
+                                    interpretation, color = "Accettabile", "orange"
                                 else:
-                                    interpretation = "Poor (>50%)"
+                                    interpretation, color = "Scarso", "red"
                             elif metric_name.lower() == 'r2':
-                                if metric_value >= 0.9:
-                                    interpretation = "Excellent (≥0.9)"
-                                elif metric_value >= 0.7:
-                                    interpretation = "Good (0.7-0.9)"
-                                elif metric_value >= 0.5:
-                                    interpretation = "Moderate (0.5-0.7)"
+                                if metric_value >= 0.8:
+                                    interpretation, color = "Eccellente", "green"
+                                elif metric_value >= 0.6:
+                                    interpretation, color = "Buono", "blue"
+                                elif metric_value >= 0.4:
+                                    interpretation, color = "Moderato", "orange"
                                 else:
-                                    interpretation = "Poor (<0.5)"
+                                    interpretation, color = "Scarso", "red"
+                            elif metric_name.lower() in ['mae', 'rmse']:
+                                interpretation = "Errore assoluto"
                             
-                            metrics_display.append({
-                                'Metric': metric_name.upper(),
-                                'Value': f"{metric_value:.3f}" + ("%" if metric_name.lower() in ['mape', 'smape'] else ""),
-                                'Interpretation': interpretation
-                            })
-                    
-                    if metrics_display:
-                        import pandas as pd
-                        df_metrics = pd.DataFrame(metrics_display)
-                        st.dataframe(df_metrics, use_container_width=True)
-                else:
-                    st.info("🔄 Execute a forecast to see performance metrics")
-            
-            with st.expander("🔍 **Capitolo 2: Residual Analysis & Model Diagnostics**", expanded=False):
-                st.markdown("### 📊 Residual Analysis")
-                st.markdown("Analisi dei residui per valutare la bontà del modello e identificare pattern non catturati.")
+                            value_display = f"{metric_value:.3f}" + ("%" if metric_name.lower() in ['mape', 'smape'] else "")
+                            st.metric(
+                                label=f"{metric_name.upper()}",
+                                value=value_display,
+                                help=f"Interpretazione: {interpretation}"
+                            )
                 
-                # Check if we have residual data
-                if (hasattr(st.session_state, 'last_prophet_result') and 
-                    hasattr(st.session_state, 'last_prophet_data')):
-                    
-                    try:
-                        from modules.prophet_diagnostics import run_prophet_diagnostics
-                        
-                        # Run advanced diagnostics
-                        diagnostic_results = run_prophet_diagnostics(
-                            st.session_state.last_prophet_data['df'],
-                            st.session_state.last_prophet_data['date_col'],
-                            st.session_state.last_prophet_data['target_col'],
-                            st.session_state.last_prophet_result,
-                            show_diagnostic_plots=True
-                        )
-                        
-                        # Display diagnostic results
-                        if 'residual_analysis' in diagnostic_results:
-                            res_analysis = diagnostic_results['residual_analysis']
-                            
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.metric("Residual Mean", f"{res_analysis.get('mean', 0):.4f}")
-                                st.metric("Residual Std", f"{res_analysis.get('std', 0):.4f}")
-                            with col2:
-                                st.metric("Skewness", f"{res_analysis.get('skewness', 0):.4f}")
-                                st.metric("Kurtosis", f"{res_analysis.get('kurtosis', 0):.4f}")
-                            
-                            # Interpretation
-                            st.markdown("#### 📈 Residual Interpretation")
-                            if abs(res_analysis.get('mean', 0)) < 0.01:
-                                st.success("✅ Residual mean close to zero (good)")
-                            else:
-                                st.warning("⚠️ Residual mean not close to zero (potential bias)")
-                            
-                            if abs(res_analysis.get('skewness', 0)) < 0.5:
-                                st.success("✅ Residuals approximately symmetric")
-                            else:
-                                st.warning("⚠️ Residuals show skewness (asymmetric distribution)")
-                    
-                    except Exception as e:
-                        st.error(f"Error in residual analysis: {str(e)}")
-                        st.info("Advanced residual analysis requires Prophet model results")
-                else:
-                    st.info("🔄 Execute a Prophet forecast to see residual analysis")
-            
-            with st.expander("📊 **Capitolo 3: Forecasting Quality Assessment**", expanded=False):
-                st.markdown("### 🎯 Forecast Quality & Reliability")
-                st.markdown("Valutazione della qualità e affidabilità delle previsioni generate.")
+                # Detailed interpretation guide
+                st.markdown("""
+                **📚 Guida all'Interpretazione delle Metriche:**
                 
-                # Forecast reliability indicators
-                if hasattr(st.session_state, 'last_forecast_df'):
-                    forecast_df = st.session_state.last_forecast_df
+                - **MAPE (Mean Absolute Percentage Error)**: Percentuale di errore medio. Più basso = migliore.
+                - **R² (Coefficient of Determination)**: Quanto bene il modello spiega i dati (0-1). Più alto = migliore.
+                - **MAE (Mean Absolute Error)**: Errore medio in unità originali. Più basso = migliore.
+                - **RMSE (Root Mean Square Error)**: Penalizza errori grandi. Più basso = migliore.
+                """)
+            else:
+                st.info("🔄 Esegui un forecast per vedere le metriche di performance")
+            
+            st.markdown("---")
+            
+            # === RESIDUAL ANALYSIS SECTION ===
+            st.markdown("### 🔍 **2. Analisi dei Residui (Errori del Modello)**")
+            st.markdown("I residui mostrano la differenza tra valori reali e predetti. Residui ben distribuiti indicano un buon modello.")
+            
+            if (hasattr(st.session_state, 'last_prophet_result') and 
+                hasattr(st.session_state, 'last_prophet_data')):
+                
+                try:
+                    from modules.prophet_diagnostics import run_prophet_diagnostics
                     
-                    if not forecast_df.empty:
-                        # Forecast statistics
-                        forecast_col = 'yhat' if 'yhat' in forecast_df.columns else forecast_df.columns[-1]
-                        forecast_values = forecast_df[forecast_col]
+                    # Run advanced diagnostics
+                    diagnostic_results = run_prophet_diagnostics(
+                        st.session_state.last_prophet_data['df'],
+                        st.session_state.last_prophet_data['date_col'],
+                        st.session_state.last_prophet_data['target_col'],
+                        st.session_state.last_prophet_result,
+                        show_diagnostic_plots=True
+                    )
+                    
+                    # Display diagnostic results
+                    if 'residual_analysis' in diagnostic_results:
+                        res_analysis = diagnostic_results['residual_analysis']
                         
-                        col1, col2, col3 = st.columns(3)
+                        col1, col2, col3, col4 = st.columns(4)
                         with col1:
-                            st.metric("Forecast Mean", f"{forecast_values.mean():.2f}")
+                            mean_val = res_analysis.get('mean', 0)
+                            st.metric("Media Residui", f"{mean_val:.4f}")
+                            if abs(mean_val) < 0.01:
+                                st.success("✅ Media vicina a zero (ottimo)")
+                            else:
+                                st.warning("⚠️ Media non zero (possibile bias)")
+                        
                         with col2:
-                            st.metric("Forecast Std", f"{forecast_values.std():.2f}")
+                            std_val = res_analysis.get('std', 0)
+                            st.metric("Deviazione Standard", f"{std_val:.4f}")
+                            st.info("💡 Minore = errori più consistenti")
+                        
                         with col3:
-                            cv = (forecast_values.std() / forecast_values.mean()) * 100 if forecast_values.mean() != 0 else 0
-                            st.metric("Coefficient of Variation", f"{cv:.2f}%")
+                            skew_val = res_analysis.get('skewness', 0)
+                            st.metric("Asimmetria", f"{skew_val:.4f}")
+                            if abs(skew_val) < 0.5:
+                                st.success("✅ Distribuzione simmetrica")
+                            else:
+                                st.warning("⚠️ Distribuzione asimmetrica")
                         
-                        # Forecast stability assessment
-                        st.markdown("#### 📈 Forecast Stability")
+                        with col4:
+                            kurt_val = res_analysis.get('kurtosis', 0)
+                            st.metric("Curtosi", f"{kurt_val:.4f}")
+                            if abs(kurt_val) < 1:
+                                st.success("✅ Distribuzione normale")
+                            else:
+                                st.info("📊 Code spesse/sottili")
                         
-                        # Calculate trend in forecast
+                        # Actionable insights for residuals
+                        st.markdown("""
+                        **🎯 Cosa significano questi risultati:**
+                        
+                        - **Media vicina a zero**: Il modello non ha bias sistematici
+                        - **Bassa deviazione standard**: Errori consistenti e prevedibili
+                        - **Distribuzione simmetrica**: Il modello non sovra/sottostima sistematicamente
+                        - **Curtosi normale**: Gli errori seguono una distribuzione gaussiana
+                        
+                        **💡 Se i residui non sono ottimali:**
+                        - Bias sistematico → Aggiungi regressori esterni o festività
+                        - Alta variabilità → Considera modelli più complessi o più dati
+                        - Asimmetria → Verifica outliers o trasformazioni dei dati
+                        """)
+                
+                except Exception as e:
+                    st.warning(f"⚠️ Analisi residui non disponibile: {str(e)}")
+                    st.info("💡 L'analisi dettagliata dei residui richiede un modello Prophet")
+            else:
+                st.info("🔄 Esegui un forecast Prophet per vedere l'analisi dei residui")
+            
+            st.markdown("---")
+            
+            # === FORECAST QUALITY ASSESSMENT ===
+            st.markdown("### 🎯 **3. Valutazione Qualità delle Previsioni**")
+            st.markdown("Analisi dell'affidabilità e stabilità delle previsioni future generate dal modello.")
+            
+            if hasattr(st.session_state, 'last_forecast_df'):
+                forecast_df = st.session_state.last_forecast_df
+                
+                if not forecast_df.empty:
+                    # Forecast statistics
+                    forecast_col = 'yhat' if 'yhat' in forecast_df.columns else forecast_df.columns[-1]
+                    forecast_values = forecast_df[forecast_col]
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Media Previsioni", f"{forecast_values.mean():.2f}")
+                    with col2:
+                        st.metric("Deviazione Standard", f"{forecast_values.std():.2f}")
+                    with col3:
+                        cv = (forecast_values.std() / forecast_values.mean()) * 100 if forecast_values.mean() != 0 else 0
+                        st.metric("Coefficiente Variazione", f"{cv:.2f}%")
+                        if cv < 20:
+                            st.success("✅ Previsioni stabili")
+                        elif cv < 50:
+                            st.warning("⚠️ Variabilità moderata")
+                        else:
+                            st.error("❌ Alta variabilità")
+                    with col4:
+                        # Trend analysis
                         if len(forecast_values) > 1:
                             trend_change = forecast_values.iloc[-1] - forecast_values.iloc[0]
                             trend_pct = (trend_change / forecast_values.iloc[0]) * 100 if forecast_values.iloc[0] != 0 else 0
+                            st.metric("Trend Previsioni", f"{trend_pct:+.2f}%")
                             
                             if abs(trend_pct) < 5:
-                                st.success(f"✅ Stable forecast trend ({trend_pct:+.2f}%)")
+                                st.success("✅ Trend stabile")
                             elif abs(trend_pct) < 20:
-                                st.warning(f"⚠️ Moderate forecast trend ({trend_pct:+.2f}%)")
+                                st.warning("⚠️ Trend moderato")
                             else:
-                                st.error(f"❌ Strong forecast trend ({trend_pct:+.2f}%) - May indicate model instability")
+                                st.error("❌ Trend forte")
+                    
+                    # Confidence interval analysis (if available)
+                    if 'yhat_lower' in forecast_df.columns and 'yhat_upper' in forecast_df.columns:
+                        avg_interval_width = (forecast_df['yhat_upper'] - forecast_df['yhat_lower']).mean()
+                        avg_forecast = forecast_df['yhat'].mean()
+                        interval_ratio = (avg_interval_width / avg_forecast) * 100 if avg_forecast != 0 else 0
                         
-                        # Confidence interval analysis (if available)
-                        if 'yhat_lower' in forecast_df.columns and 'yhat_upper' in forecast_df.columns:
-                            avg_interval_width = (forecast_df['yhat_upper'] - forecast_df['yhat_lower']).mean()
-                            avg_forecast = forecast_df['yhat'].mean()
-                            interval_ratio = (avg_interval_width / avg_forecast) * 100 if avg_forecast != 0 else 0
-                            
-                            st.markdown("#### 🎯 Confidence Interval Analysis")
-                            st.metric("Average Interval Width", f"{avg_interval_width:.2f}")
-                            st.metric("Interval/Forecast Ratio", f"{interval_ratio:.2f}%")
-                            
-                            if interval_ratio < 20:
-                                st.success("✅ Narrow confidence intervals (high precision)")
-                            elif interval_ratio < 50:
-                                st.warning("⚠️ Moderate confidence intervals")
-                            else:
-                                st.error("❌ Wide confidence intervals (low precision)")
-                else:
-                    st.info("🔄 Execute a forecast to see quality assessment")
+                        st.markdown("#### 🎯 **Analisi Intervalli di Confidenza**")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Larghezza Media Intervallo", f"{avg_interval_width:.2f}")
+                        with col2:
+                            st.metric("Rapporto Intervallo/Previsione", f"{interval_ratio:.2f}%")
+                        
+                        if interval_ratio < 20:
+                            st.success("✅ **Intervalli stretti**: Previsioni ad alta precisione")
+                            st.markdown("💡 Il modello è molto sicuro delle sue previsioni")
+                        elif interval_ratio < 50:
+                            st.warning("⚠️ **Intervalli moderati**: Previsioni con incertezza normale")
+                            st.markdown("💡 Considera più dati storici per ridurre l'incertezza")
+                        else:
+                            st.error("❌ **Intervalli larghi**: Previsioni con alta incertezza")
+                            st.markdown("🚨 Il modello ha poca confidenza - rivedi i parametri o i dati")
+                    
+                    # Practical forecast interpretation
+                    st.markdown("""
+                    **📊 Interpretazione Pratica delle Previsioni:**
+                    
+                    - **Coefficiente di Variazione basso (<20%)**: Previsioni consistenti e affidabili
+                    - **Trend stabile (<5%)**: Andamento futuro prevedibile, buono per pianificazione
+                    - **Intervalli di confidenza stretti**: Il modello è sicuro delle sue previsioni
+                    
+                    **⚠️ Segnali di Attenzione:**
+                    - **Alta variabilità**: Le previsioni variano molto - considera più dati o parametri diversi
+                    - **Trend forte (>20%)**: Cambiamenti drastici previsti - verifica la plausibilità
+                    - **Intervalli larghi**: Alta incertezza - usa le previsioni con cautela
+                    """)
+            else:
+                st.info("🔄 Esegui un forecast per vedere la valutazione qualità")
             
-            with st.expander("📋 **Capitolo 4: Statistical Log & Advanced Metrics**", expanded=False):
-                st.markdown("### 📊 Advanced Statistical Metrics")
-                st.markdown("Log statistico completo con metriche avanzate per analisi approfondita.")
+            st.markdown("---")
+            
+            # === TIME SERIES DECOMPOSITION ===
+            st.markdown("### 🔄 **4. Decomposizione della Serie Temporale**")
+            st.markdown("Analisi delle componenti: trend (direzione), stagionalità (pattern ricorrenti) e residui (rumore casuale).")
+            
+            # Get cleaned data for decomposition
+            if hasattr(st.session_state, 'cleaned_data') and st.session_state.cleaned_data is not None:
+                df_clean = st.session_state.cleaned_data
+                date_col = st.session_state.date_col
+                target_col = st.session_state.target_col
                 
-                # Statistical log section
-                if hasattr(st.session_state, 'last_forecast_metrics'):
-                    st.markdown("#### 📈 Complete Statistical Log")
+                try:
+                    # Prepare the series for decomposition
+                    df_ts = df_clean.copy()
+                    df_ts[date_col] = pd.to_datetime(df_ts[date_col])
+                    df_ts = df_ts.sort_values(date_col)
+                    df_ts = df_ts.set_index(date_col)
+                    series = df_ts[target_col].dropna()
                     
-                    # Create comprehensive log
-                    import datetime
-                    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    # Determine seasonal period
+                    seasonal_period = 7  # Default to weekly
+                    min_periods = 2 * seasonal_period
                     
-                    st.code(f"""
-🔬 ADVANCED DIAGNOSTIC LOG
-Generated: {current_time}
-Model: {st.session_state.get('selected_model', 'Unknown')}
-
-=== PERFORMANCE METRICS ===
-""", language="text")
+                    if len(series) >= min_periods:
+                        from statsmodels.tsa.seasonal import seasonal_decompose
+                        decomposition = seasonal_decompose(series, model='additive', period=seasonal_period)
+                        
+                        # Component analysis
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            # Trend analysis
+                            trend_start = decomposition.trend.dropna().iloc[0]
+                            trend_end = decomposition.trend.dropna().iloc[-1]
+                            trend_change = trend_end - trend_start
+                            trend_direction = "📈 Crescente" if trend_change > 0 else "📉 Decrescente" if trend_change < 0 else "➡️ Stabile"
+                            
+                            st.metric("Direzione Trend", trend_direction)
+                            st.markdown(f"**Variazione**: {trend_change:+.2f}")
+                            
+                            if abs(trend_change) < series.std() * 0.1:
+                                st.success("✅ Trend stabile")
+                                st.markdown("💡 Serie senza grandi cambiamenti direzionali")
+                            else:
+                                st.info("📊 Trend significativo")
+                                st.markdown("💡 Considera modelli che catturano bene i trend")
+                        
+                        with col2:
+                            # Seasonal analysis
+                            seasonal_strength = np.std(decomposition.seasonal.dropna()) / np.std(decomposition.observed.dropna()) * 100
+                            st.metric("Forza Stagionalità", f"{seasonal_strength:.1f}%")
+                            
+                            if seasonal_strength > 30:
+                                st.success("✅ Stagionalità forte")
+                                st.markdown("💡 Pattern stagionali evidenti - importante includerli nel modello")
+                            elif seasonal_strength > 15:
+                                st.warning("⚠️ Stagionalità moderata")
+                                st.markdown("💡 Pattern stagionali presenti ma non dominanti")
+                            else:
+                                st.info("📊 Stagionalità debole")
+                                st.markdown("💡 Pochi pattern stagionali - focus su trend e regressori")
+                        
+                        with col3:
+                            # Residual analysis
+                            residual_variance = np.var(decomposition.resid.dropna())
+                            st.metric("Varianza Residui", f"{residual_variance:.2f}")
+                            
+                            noise_ratio = residual_variance / np.var(series.dropna()) * 100
+                            if noise_ratio < 20:
+                                st.success("✅ Poco rumore")
+                                st.markdown("💡 Dati puliti, buona qualità")
+                            elif noise_ratio < 50:
+                                st.warning("⚠️ Rumore moderato")
+                                st.markdown("💡 Considera smoothing o preprocessing")
+                            else:
+                                st.error("❌ Molto rumore")
+                                st.markdown("🚨 Dati molto rumorosi - migliora la qualità")
+                        
+                        # Decomposition insights
+                        st.markdown("""
+                        **🔍 Insights dalla Decomposizione:**
+                        
+                        **Trend (Direzione a lungo termine):**
+                        - Crescente: Aumento costante nel tempo - buono per business in crescita
+                        - Decrescente: Diminuzione costante - potrebbe richiedere interventi
+                        - Stabile: Nessuna direzione chiara - focus su stagionalità e eventi
+                        
+                        **Stagionalità (Pattern ricorrenti):**
+                        - Forte (>30%): Pattern molto regolari - sfrutta la prevedibilità
+                        - Moderata (15-30%): Pattern presenti ma variabili
+                        - Debole (<15%): Pochi pattern - considera fattori esterni
+                        
+                        **Residui (Variazioni casuali):**
+                        - Bassi: Dati puliti, modello può essere preciso
+                        - Alti: Molto rumore, difficile predire con precisione
+                        """)
+                    else:
+                        st.warning(f"⚠️ Servono almeno {min_periods} osservazioni per la decomposizione")
+                        st.info("💡 Raccogli più dati storici per un'analisi completa")
+                
+                except Exception as e:
+                    st.error(f"❌ Errore nella decomposizione: {str(e)}")
+                    st.info("💡 Potrebbe essere dovuto a pattern irregolari nei dati")
+            else:
+                st.info("🔄 Carica dati per vedere la decomposizione")
+            
+            st.markdown("---")
+            
+            # === SEASONALITY ANALYSIS ===
+            st.markdown("### 📅 **5. Analisi Stagionalità Dettagliata**")
+            st.markdown("Identificazione di pattern ricorrenti per ottimizzare le previsioni.")
+            
+            if hasattr(st.session_state, 'cleaned_data') and st.session_state.cleaned_data is not None:
+                df_seasonal = st.session_state.cleaned_data.copy()
+                df_seasonal[date_col] = pd.to_datetime(df_seasonal[date_col])
+                df_seasonal = df_seasonal.sort_values(date_col)
+                
+                # Monthly seasonality analysis
+                if len(df_seasonal) >= 24:
+                    try:
+                        df_seasonal['month'] = df_seasonal[date_col].dt.month
+                        monthly_stats = df_seasonal.groupby('month')[target_col].agg(['mean', 'std', 'count']).reset_index()
+                        
+                        st.markdown("#### 📅 **Pattern Mensili**")
+                        
+                        # Find peak and low months
+                        peak_month = monthly_stats.loc[monthly_stats['mean'].idxmax(), 'month']
+                        low_month = monthly_stats.loc[monthly_stats['mean'].idxmin(), 'month']
+                        month_names = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Jul', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Mese di Picco", month_names[peak_month-1])
+                            st.success(f"✅ Massimo: {monthly_stats.loc[monthly_stats['month']==peak_month, 'mean'].iloc[0]:.2f}")
+                        with col2:
+                            st.metric("Mese Minimo", month_names[low_month-1])
+                            st.info(f"📊 Minimo: {monthly_stats.loc[monthly_stats['month']==low_month, 'mean'].iloc[0]:.2f}")
+                        with col3:
+                            seasonal_range = monthly_stats['mean'].max() - monthly_stats['mean'].min()
+                            avg_value = monthly_stats['mean'].mean()
+                            seasonality_impact = (seasonal_range / avg_value) * 100
+                            st.metric("Impatto Stagionalità", f"{seasonality_impact:.1f}%")
+                            
+                            if seasonality_impact > 50:
+                                st.success("✅ Stagionalità molto forte")
+                            elif seasonality_impact > 25:
+                                st.warning("⚠️ Stagionalità moderata")
+                            else:
+                                st.info("📊 Stagionalità debole")
+                        
+                        # Practical monthly insights
+                        st.markdown(f"""
+                        **💡 Insights Mensili Pratici:**
+                        
+                        - **Periodo di picco**: {month_names[peak_month-1]} - Pianifica risorse extra
+                        - **Periodo minimo**: {month_names[low_month-1]} - Ottimizza costi operativi
+                        - **Variazione stagionale**: {seasonality_impact:.1f}% - {"Molto significativa" if seasonality_impact > 50 else "Moderata" if seasonality_impact > 25 else "Limitata"}
+                        
+                        **🎯 Raccomandazioni:**
+                        - Abilita la stagionalità annuale nel modello Prophet
+                        - Considera eventi specifici nei mesi di picco
+                        - Pianifica budget basandoti sui pattern identificati
+                        """)
                     
-                    # Show all metrics in code format
-                    metrics = st.session_state.last_forecast_metrics
-                    for key, value in metrics.items():
-                        if isinstance(value, (int, float)):
-                            st.code(f"{key.upper()}: {value:.6f}", language="text")
-                    
-                    # Model configuration log
-                    if hasattr(st.session_state, 'model_configs'):
-                        st.markdown("#### ⚙️ Model Configuration Log")
-                        model_name = st.session_state.get('selected_model', 'Unknown')
-                        if model_name in st.session_state.model_configs:
-                            config = st.session_state.model_configs[model_name]
-                            st.code(f"""
-=== MODEL CONFIGURATION ===
-Model: {model_name}
-""", language="text")
-                            for param, value in config.items():
-                                st.code(f"{param}: {value}", language="text")
-                    
-                    # Data quality log
-                    if hasattr(st.session_state, 'cleaned_data'):
-                        df = st.session_state.cleaned_data
-                        st.markdown("#### 📊 Data Quality Log")
-                        st.code(f"""
-=== DATA QUALITY SUMMARY ===
-Total Records: {len(df)}
-Missing Values: {df.isnull().sum().sum()}
-Date Range: {df[st.session_state.date_col].min()} to {df[st.session_state.date_col].max()}
-Target Variable: {st.session_state.target_col}
-Target Mean: {df[st.session_state.target_col].mean():.6f}
-Target Std: {df[st.session_state.target_col].std():.6f}
-""", language="text")
+                    except Exception as e:
+                        st.warning("⚠️ Analisi mensile non disponibile")
                 else:
-                    st.info("🔄 Execute a forecast to see statistical log")
+                    st.info("📊 Servono almeno 24 mesi di dati per l'analisi mensile")
+                
+                # Weekly seasonality analysis
+                if len(df_seasonal) >= 14:
+                    try:
+                        df_seasonal['dayofweek'] = df_seasonal[date_col].dt.dayofweek
+                        weekly_stats = df_seasonal.groupby('dayofweek')[target_col].agg(['mean', 'std', 'count']).reset_index()
+                        
+                        st.markdown("#### 📊 **Pattern Settimanali**")
+                        
+                        # Find peak and low days
+                        peak_day = weekly_stats.loc[weekly_stats['mean'].idxmax(), 'dayofweek']
+                        low_day = weekly_stats.loc[weekly_stats['mean'].idxmin(), 'dayofweek']
+                        day_names = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica']
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Giorno di Picco", day_names[peak_day])
+                            st.success(f"✅ Massimo: {weekly_stats.loc[weekly_stats['dayofweek']==peak_day, 'mean'].iloc[0]:.2f}")
+                        with col2:
+                            st.metric("Giorno Minimo", day_names[low_day])
+                            st.info(f"📊 Minimo: {weekly_stats.loc[weekly_stats['dayofweek']==low_day, 'mean'].iloc[0]:.2f}")
+                        with col3:
+                            weekly_range = weekly_stats['mean'].max() - weekly_stats['mean'].min()
+                            weekly_avg = weekly_stats['mean'].mean()
+                            weekly_impact = (weekly_range / weekly_avg) * 100 if weekly_avg != 0 else 0
+                            st.metric("Variazione Settimanale", f"{weekly_impact:.1f}%")
+                            
+                            if weekly_impact > 30:
+                                st.success("✅ Pattern settimanale forte")
+                            elif weekly_impact > 15:
+                                st.warning("⚠️ Pattern settimanale moderato")
+                            else:
+                                st.info("📊 Pattern settimanale debole")
+                        
+                        # Business insights for weekly patterns
+                        st.markdown(f"""
+                        **💼 Insights Settimanali per il Business:**
+                        
+                        - **Giorno più intenso**: {day_names[peak_day]} - Pianifica staffing massimo
+                        - **Giorno più leggero**: {day_names[low_day]} - Riduci risorse operative
+                        - **Impatto settimanale**: {weekly_impact:.1f}% - {"Molto rilevante" if weekly_impact > 30 else "Moderatamente rilevante" if weekly_impact > 15 else "Poco rilevante"}
+                        
+                        **📋 Azioni Consigliate:**
+                        - Abilita stagionalità settimanale nel modello
+                        - Adatta gli orari di lavoro ai pattern identificati
+                        - Considera promozioni nei giorni meno intensi
+                        """)
+                    
+                    except Exception as e:
+                        st.warning("⚠️ Analisi settimanale non disponibile")
+                else:
+                    st.info("📊 Servono almeno 14 giorni di dati per l'analisi settimanale")
+                
+                # Clean up temporary columns
+                temp_cols = ['month', 'dayofweek']
+                for col in temp_cols:
+                    if col in df_seasonal.columns:
+                        df_seasonal.drop(col, axis=1, inplace=True)
+            
+            st.markdown("---")
+            
+            # === STATISTICAL LOG & ADVANCED METRICS ===
+            st.markdown("### 📋 **6. Log Statistico e Metriche Avanzate**")
+            st.markdown("Documentazione completa delle configurazioni e risultati per tracciabilità e debugging.")
+            
+            if hasattr(st.session_state, 'last_forecast_metrics'):
+                # Current session info
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                model_name = st.session_state.get('selected_model', 'Unknown')
+                
+                st.markdown(f"""
+                **📊 Sessione di Forecasting**
+                - **Timestamp**: {current_time}
+                - **Modello utilizzato**: {model_name}
+                - **Dati**: {len(st.session_state.get('cleaned_data', []))} osservazioni
+                """)
+                
+                # Performance summary
+                metrics = st.session_state.last_forecast_metrics
+                st.markdown("**🎯 Riassunto Performance:**")
+                
+                performance_summary = []
+                for metric_name, metric_value in metrics.items():
+                    if isinstance(metric_value, (int, float)):
+                        performance_summary.append(f"- **{metric_name.upper()}**: {metric_value:.4f}")
+                
+                for summary in performance_summary[:6]:  # Show first 6 metrics
+                    st.markdown(summary)
+                
+                # Model configuration summary
+                if hasattr(st.session_state, 'model_configs'):
+                    model_configs = st.session_state.model_configs
+                    if model_name in model_configs:
+                        config = model_configs[model_name]
+                        st.markdown("**⚙️ Configurazione Modello:**")
+                        
+                        config_summary = []
+                        for param, value in config.items():
+                            config_summary.append(f"- **{param}**: {value}")
+                        
+                        for conf in config_summary[:8]:  # Show first 8 parameters
+                            st.markdown(conf)
+                
+                # Data quality summary
+                if hasattr(st.session_state, 'cleaned_data'):
+                    df = st.session_state.cleaned_data
+                    missing_values = df.isnull().sum().sum()
+                    date_range_days = (df[date_col].max() - df[date_col].min()).days
+                    
+                    st.markdown(f"""
+                    **📈 Qualità Dati:**
+                    - **Record totali**: {len(df)}
+                    - **Valori mancanti**: {missing_values}
+                    - **Periodo coperto**: {date_range_days} giorni
+                    - **Frequenza media**: {len(df)/max(date_range_days, 1):.2f} osservazioni/giorno
+                    """)
+                
+                # Export options for documentation
+                st.markdown("**📋 Esportazione Risultati:**")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if st.button("📊 Scarica Report Completo"):
+                        # Create a comprehensive report
+                        report_data = {
+                            'timestamp': current_time,
+                            'model': model_name,
+                            'metrics': metrics,
+                            'data_points': len(st.session_state.get('cleaned_data', [])),
+                            'recommendations': recommendations if 'recommendations' in locals() else []
+                        }
+                        
+                        import json
+                        report_json = json.dumps(report_data, indent=2, default=str)
+                        st.download_button(
+                            label="💾 Download JSON Report",
+                            data=report_json,
+                            file_name=f"forecast_report_{current_time.replace(':', '-')}.json",
+                            mime="application/json"
+                        )
+                
+                with col2:
+                    if st.button("📈 Salva Configurazione"):
+                        # Save current configuration for reuse
+                        config_data = {
+                            'model': model_name,
+                            'parameters': st.session_state.get('model_configs', {}),
+                            'forecast_config': st.session_state.get('forecast_config', {}),
+                            'timestamp': current_time
+                        }
+                        
+                        import json
+                        config_json = json.dumps(config_data, indent=2, default=str)
+                        st.download_button(
+                            label="💾 Download Config",
+                            data=config_json,
+                            file_name=f"forecast_config_{current_time.replace(':', '-')}.json",
+                            mime="application/json"
+                        )
+            else:
+                st.info("🔄 Esegui un forecast per vedere il log statistico")
+            
+            # Final recommendations section
+            st.markdown("---")
+            st.markdown("## 🚀 **Prossimi Passi Consigliati**")
+            
+            # Generate dynamic recommendations based on analysis
+            final_recommendations = []
+            
+            if hasattr(st.session_state, 'last_forecast_metrics'):
+                metrics = st.session_state.last_forecast_metrics
+                
+                if 'mape' in metrics and metrics['mape'] > 20:
+                    final_recommendations.append("🎯 **Migliora MAPE**: Aggiungi festività, regressori esterni o ottimizza parametri stagionalità")
+                
+                if 'r2' in metrics and metrics['r2'] < 0.6:
+                    final_recommendations.append("📊 **Aumenta R²**: Considera modelli più complessi o includi più variabili esplicative")
+                
+                final_recommendations.append("📅 **Monitora regolarmente**: Riallena il modello con nuovi dati ogni 1-3 mesi")
+                final_recommendations.append("🔄 **Test A/B**: Confronta diversi modelli per trovare il migliore per i tuoi dati")
+                final_recommendations.append("📈 **Validazione continua**: Monitora le performance su dati reali vs previsioni")
+            else:
+                final_recommendations = [
+                    "🔄 **Esegui un forecast**: Inizia con il modello Prophet per una prima analisi",
+                    "📊 **Analizza i pattern**: Usa la decomposizione per capire trend e stagionalità",
+                    "🎯 **Configura parametri**: Ottimizza le impostazioni basandoti sui pattern identificati"
+                ]
+            
+            for i, rec in enumerate(final_recommendations, 1):
+                st.markdown(f"{i}. {rec}")
+            
+            st.success("🎉 **Analisi completata!** Usa questi insights per migliorare le tue previsioni e ottimizzare le decisioni di business.")
         
         else:
             st.info("⚠️ **Advanced Diagnostic disponibili dopo l'esecuzione del forecasting.** Esegui un modello di forecasting per vedere le diagnostiche avanzate.")
             
             st.markdown("""
-            ### 🔬 Cosa troverai qui:
+            ### 🔬 Cosa troverai qui dopo l'esecuzione del forecast:
             
-            - **📊 Capitolo 1**: Metriche di performance e qualità del modello
-            - **🔍 Capitolo 2**: Analisi dei residui e diagnostiche del modello  
-            - **📊 Capitolo 3**: Valutazione qualità e affidabilità delle previsioni
-            - **📋 Capitolo 4**: Log statistico completo con metriche avanzate
+            - **🎯 Insights e Raccomandazioni**: Suggerimenti pratici per migliorare le previsioni
+            - **📈 Metriche di Performance**: Analisi dettagliata di MAPE, R², MAE, RMSE
+            - **🔍 Analisi Residui**: Valutazione degli errori del modello
+            - **📊 Qualità Previsioni**: Affidabilità e stabilità delle previsioni future
+            - **🔄 Decomposizione Serie**: Trend, stagionalità e componenti casuali
+            - **📅 Stagionalità Dettagliata**: Pattern mensili e settimanali
+            - **📋 Log Statistico**: Documentazione completa per tracciabilità
             
-            Ogni capitolo è organizzato in sezioni espandibili per una navigazione ottimale.
+            **💡 Ogni sezione include suggerimenti pratici per utenti non esperti di forecasting!**
             """)
-
-# Navigation section - shown when forecast results are available
 if st.session_state.data_loaded and st.session_state.get('forecast_results_available', False):
     # Reset options and navigation - ENHANCED USER CONTROL
     st.markdown("---")
