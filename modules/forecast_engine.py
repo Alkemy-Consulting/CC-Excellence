@@ -248,6 +248,12 @@ def validate_holtwinters_config(config: Dict[str, Any]) -> Dict[str, Any]:
 def display_forecast_results(model_name: str, forecast_df: pd.DataFrame, metrics: Dict[str, Any], plots: Dict[str, Any]):
     """Display forecast results without header text"""
     try:
+        # Save data for Advanced Diagnostic tab
+        st.session_state.last_forecast_metrics = metrics
+        st.session_state.last_forecast_df = forecast_df
+        st.session_state.last_model_name = model_name
+        st.session_state.last_forecast_plots = plots
+        
         # Display metrics with scientific rigor - 2 decimal places for all forecast metrics
         col1, col2, col3, col4 = st.columns(4)
         
@@ -328,160 +334,6 @@ def display_forecast_results(model_name: str, forecast_df: pd.DataFrame, metrics
         for plot_name, plot_fig in plots.items():
             if plot_name != 'forecast_plot' and plot_fig is not None:
                 st.plotly_chart(plot_fig, use_container_width=True)
-        
-        # ===== PROGRESSIVE DISCLOSURE: DIAGNOSTICHE AVANZATE =====
-        with st.expander("🔬 **Diagnostiche Avanzate del Modello**", expanded=False):
-            st.markdown("### 📊 Analisi Diagnostica Completa")
-            
-            # Model-specific diagnostics
-            if 'prophet' in model_name.lower():
-                st.markdown("#### Prophet - Diagnostiche Componenti")
-                
-                # Display Prophet-specific diagnostics
-                if 'components' in plots:
-                    st.plotly_chart(plots['components'], use_container_width=True)
-                
-                # Extended Prophet Diagnostics - Check if available in session state
-                if (hasattr(st.session_state, 'last_prophet_result') and 
-                    hasattr(st.session_state, 'last_prophet_data') and
-                    st.session_state.last_prophet_result is not None):
-                    
-                    with st.expander("🔬 **Extended Prophet Diagnostics**", expanded=False):
-                        st.markdown("### 📊 Advanced Forecast Quality Analysis")
-                        
-                        # Run diagnostic analysis
-                        diagnostic_results = run_prophet_diagnostics(
-                            st.session_state.last_prophet_data['df'],
-                            st.session_state.last_prophet_data['date_col'],
-                            st.session_state.last_prophet_data['target_col'],
-                            st.session_state.last_prophet_result,
-                            show_diagnostic_plots=True
-                        )
-                        
-                        # Display quality score prominently
-                        quality_score = diagnostic_results.get('quality_score', 0)
-                        if quality_score >= 80:
-                            st.success(f"✅ **Excellent Forecast Quality**: {quality_score:.1f}/100")
-                        elif quality_score >= 60:
-                            st.warning(f"⚠️ **Good Forecast Quality**: {quality_score:.1f}/100")
-                        elif quality_score >= 40:
-                            st.info(f"🔶 **Moderate Forecast Quality**: {quality_score:.1f}/100")
-                        else:
-                            st.error(f"❌ **Poor Forecast Quality**: {quality_score:.1f}/100")
-                
-                diagnostics_info = """
-                **Prophet Standard Diagnostics:**
-                - **Trend Analysis**: Il modello rileva automaticamente changepoints nel trend
-                - **Seasonal Decomposition**: Componenti stagionali separate per anno, settimana, giorno
-                - **Holiday Effects**: Gestione automatica di festività e eventi speciali
-                - **Uncertainty Quantification**: Intervalli di credibilità via simulazione Monte Carlo
-                """
-                st.markdown(diagnostics_info)
-                
-            elif 'arima' in model_name.lower() or 'sarima' in model_name.lower():
-                st.markdown("#### ARIMA/SARIMA - Diagnostiche Residui")
-                
-                # Display ARIMA-specific diagnostics
-                diagnostic_plots = ['residuals', 'acf_pacf', 'diagnostics']
-                for diag_plot in diagnostic_plots:
-                    if diag_plot in plots:
-                        st.plotly_chart(plots[diag_plot], use_container_width=True)
-                
-                # ARIMA Diagnostics information
-                arima_diagnostics = """
-                **ARIMA/SARIMA Diagnostics:**
-                - **Residuals Analysis**: Test di normalità (Shapiro-Wilk, Jarque-Bera)
-                - **Autocorrelation Tests**: Ljung-Box test per autocorrelazione residui
-                - **Stationarity Tests**: Augmented Dickey-Fuller, KPSS tests
-                - **Model Selection**: Criteri informativi (AIC, BIC, HQIC)
-                """
-                st.markdown(arima_diagnostics)
-                
-                # Display diagnostic metrics if available
-                if 'diagnostics' in metrics:
-                    diag_metrics = metrics['diagnostics']
-                    st.markdown("**Test Statistici:**")
-                    
-                    if isinstance(diag_metrics, dict):
-                        for test_name, test_result in diag_metrics.items():
-                            if isinstance(test_result, dict):
-                                st.markdown(f"- **{test_name.title()}**: {test_result}")
-                
-            elif 'holt' in model_name.lower():
-                st.markdown("#### Holt-Winters - Diagnostiche Stagionalità")
-                
-                # Display Holt-Winters specific diagnostics
-                if 'components' in plots:
-                    st.plotly_chart(plots['components'], use_container_width=True)
-                if 'residuals' in plots:
-                    st.plotly_chart(plots['residuals'], use_container_width=True)
-                
-                hw_diagnostics = """
-                **Holt-Winters Diagnostics:**
-                - **Seasonal Pattern Analysis**: Decomposizione additiva/moltiplicativa
-                - **Trend Damping**: Valutazione del damping factor per trend
-                - **Smoothing Parameters**: Alpha (level), Beta (trend), Gamma (seasonal)
-                - **Forecast Accuracy**: In-sample e out-of-sample performance
-                """
-                st.markdown(hw_diagnostics)
-            
-            # General diagnostic metrics
-            st.markdown("#### 📈 Metriche di Qualità del Modello")
-            
-            # Model fit quality indicators
-            quality_indicators = []
-            
-            if 'mape' in metrics:
-                mape_val = metrics['mape']
-                if mape_val <= 10:
-                    quality_indicators.append("✅ **MAPE Eccellente** (≤10%) - Previsioni molto accurate")
-                elif mape_val <= 20:
-                    quality_indicators.append("🟡 **MAPE Buono** (10-20%) - Previsioni accurate")
-                elif mape_val <= 50:
-                    quality_indicators.append("🟠 **MAPE Accettabile** (20-50%) - Previsioni discrete")
-                else:
-                    quality_indicators.append("🔴 **MAPE Alto** (>50%) - Accuratezza da migliorare")
-            
-            if 'r2' in metrics:
-                r2_val = metrics['r2']
-                if r2_val >= 0.9:
-                    quality_indicators.append("✅ **R² Eccellente** (≥0.9) - Ottima spiegazione della varianza")
-                elif r2_val >= 0.7:
-                    quality_indicators.append("🟡 **R² Buono** (0.7-0.9) - Buona spiegazione della varianza")
-                elif r2_val >= 0.5:
-                    quality_indicators.append("🟠 **R² Accettabile** (0.5-0.7) - Spiegazione discreta")
-                else:
-                    quality_indicators.append("🔴 **R² Basso** (<0.5) - Scarsa spiegazione della varianza")
-            
-            for indicator in quality_indicators:
-                st.markdown(indicator)
-            
-            # Advanced interpretation
-            st.markdown("#### 🎯 Interpretazione e Raccomandazioni")
-            
-            recommendations = []
-            
-            # MAPE-based recommendations
-            if 'mape' in metrics:
-                mape_val = metrics['mape']
-                if mape_val > 30:
-                    recommendations.append("📈 **Considera modelli alternativi** - MAPE elevato suggerisce necessità di ottimizzazione")
-                    recommendations.append("🔍 **Verifica outlier** - Dati anomali potrebbero influenzare le previsioni")
-                
-                if mape_val < 5:
-                    recommendations.append("⚠️ **Possibile overfitting** - MAPE molto basso potrebbe indicare sovradattamento")
-            
-            # Model-specific recommendations
-            if 'arima' in model_name.lower():
-                recommendations.append("🔬 **Verifica residui** - Controlla ACF/PACF per autocorrelazione residua")
-                recommendations.append("📊 **Test stazionarietà** - Assicurati che la serie sia stazionaria")
-                
-            elif 'prophet' in model_name.lower():
-                recommendations.append("📅 **Gestione festività** - Considera eventi speciali per il tuo dominio")
-                recommendations.append("🔧 **Tuning parametri** - Ottimizza changepoint e seasonality prior scale")
-            
-            for rec in recommendations:
-                st.markdown(rec)
         
         # Display forecast data table
         if not forecast_df.empty:

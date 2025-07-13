@@ -157,7 +157,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
     stats = get_data_statistics(df_clean, date_col, target_col)
 
     # Create tabs for organizing content
-    tab1, tab2 = st.tabs(["📊 Data Series Analysis", "Forecasting Results"])
+    tab1, tab2, tab3 = st.tabs(["📊 Data Series Analysis", "Forecasting Results", "🔬 Advanced Diagnostic"])
     
     with tab1:
         # Key Dataset Metrics in horizontal layout
@@ -956,6 +956,274 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                         st.markdown(f"- {warning}")
                 else:
                     st.success("✅ **Configurazione validata** - Pronto per l'esecuzione!")
+
+    with tab3:
+        # Advanced Diagnostic Tab - only show if forecast results are available
+        if st.session_state.get('forecast_results_available', False):
+            st.markdown("## 🔬 Advanced Diagnostic Dashboard")
+            st.markdown("Diagnostic avanzate per valutare la qualità del modello di forecasting e identificare possibili miglioramenti.")
+            
+            # === MENU ESPANDIBILE PER DIAGNOSTICHE ===
+            with st.expander("📊 **Capitolo 1: Performance Metrics & Model Quality**", expanded=False):
+                st.markdown("### 📈 Model Performance Overview")
+                
+                # Get current forecast metrics
+                if hasattr(st.session_state, 'last_forecast_metrics'):
+                    metrics = st.session_state.last_forecast_metrics
+                    
+                    # Quality Score Calculation
+                    quality_score = 100
+                    quality_issues = []
+                    
+                    if 'mape' in metrics:
+                        mape_val = metrics['mape']
+                        if mape_val > 50:
+                            quality_score -= 40
+                            quality_issues.append(f"MAPE molto alto ({mape_val:.2f}%)")
+                        elif mape_val > 20:
+                            quality_score -= 20
+                            quality_issues.append(f"MAPE elevato ({mape_val:.2f}%)")
+                    
+                    if 'r2' in metrics:
+                        r2_val = metrics['r2']
+                        if r2_val < 0.5:
+                            quality_score -= 30
+                            quality_issues.append(f"R² basso ({r2_val:.3f})")
+                        elif r2_val < 0.7:
+                            quality_score -= 15
+                            quality_issues.append(f"R² moderato ({r2_val:.3f})")
+                    
+                    # Display Quality Score
+                    col1, col2, col3 = st.columns([1, 2, 1])
+                    with col2:
+                        if quality_score >= 80:
+                            st.success(f"🎯 **Excellent Model Quality**: {quality_score}/100")
+                        elif quality_score >= 60:
+                            st.warning(f"⚠️ **Good Model Quality**: {quality_score}/100")
+                        else:
+                            st.error(f"❌ **Poor Model Quality**: {quality_score}/100")
+                    
+                    # Quality Issues
+                    if quality_issues:
+                        st.markdown("#### 🚨 Quality Issues Detected:")
+                        for issue in quality_issues:
+                            st.markdown(f"- {issue}")
+                    else:
+                        st.success("✅ No significant quality issues detected!")
+                    
+                    # Detailed Metrics Table
+                    st.markdown("#### 📊 Detailed Performance Metrics")
+                    
+                    metrics_display = []
+                    for metric_name, metric_value in metrics.items():
+                        if isinstance(metric_value, (int, float)):
+                            interpretation = ""
+                            if metric_name.lower() == 'mape':
+                                if metric_value <= 10:
+                                    interpretation = "Excellent (≤10%)"
+                                elif metric_value <= 20:
+                                    interpretation = "Good (10-20%)"
+                                elif metric_value <= 50:
+                                    interpretation = "Acceptable (20-50%)"
+                                else:
+                                    interpretation = "Poor (>50%)"
+                            elif metric_name.lower() == 'r2':
+                                if metric_value >= 0.9:
+                                    interpretation = "Excellent (≥0.9)"
+                                elif metric_value >= 0.7:
+                                    interpretation = "Good (0.7-0.9)"
+                                elif metric_value >= 0.5:
+                                    interpretation = "Moderate (0.5-0.7)"
+                                else:
+                                    interpretation = "Poor (<0.5)"
+                            
+                            metrics_display.append({
+                                'Metric': metric_name.upper(),
+                                'Value': f"{metric_value:.3f}" + ("%" if metric_name.lower() in ['mape', 'smape'] else ""),
+                                'Interpretation': interpretation
+                            })
+                    
+                    if metrics_display:
+                        import pandas as pd
+                        df_metrics = pd.DataFrame(metrics_display)
+                        st.dataframe(df_metrics, use_container_width=True)
+                else:
+                    st.info("🔄 Execute a forecast to see performance metrics")
+            
+            with st.expander("🔍 **Capitolo 2: Residual Analysis & Model Diagnostics**", expanded=False):
+                st.markdown("### 📊 Residual Analysis")
+                st.markdown("Analisi dei residui per valutare la bontà del modello e identificare pattern non catturati.")
+                
+                # Check if we have residual data
+                if (hasattr(st.session_state, 'last_prophet_result') and 
+                    hasattr(st.session_state, 'last_prophet_data')):
+                    
+                    try:
+                        from modules.prophet_diagnostics import run_prophet_diagnostics
+                        
+                        # Run advanced diagnostics
+                        diagnostic_results = run_prophet_diagnostics(
+                            st.session_state.last_prophet_data['df'],
+                            st.session_state.last_prophet_data['date_col'],
+                            st.session_state.last_prophet_data['target_col'],
+                            st.session_state.last_prophet_result,
+                            show_diagnostic_plots=True
+                        )
+                        
+                        # Display diagnostic results
+                        if 'residual_analysis' in diagnostic_results:
+                            res_analysis = diagnostic_results['residual_analysis']
+                            
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Residual Mean", f"{res_analysis.get('mean', 0):.4f}")
+                                st.metric("Residual Std", f"{res_analysis.get('std', 0):.4f}")
+                            with col2:
+                                st.metric("Skewness", f"{res_analysis.get('skewness', 0):.4f}")
+                                st.metric("Kurtosis", f"{res_analysis.get('kurtosis', 0):.4f}")
+                            
+                            # Interpretation
+                            st.markdown("#### 📈 Residual Interpretation")
+                            if abs(res_analysis.get('mean', 0)) < 0.01:
+                                st.success("✅ Residual mean close to zero (good)")
+                            else:
+                                st.warning("⚠️ Residual mean not close to zero (potential bias)")
+                            
+                            if abs(res_analysis.get('skewness', 0)) < 0.5:
+                                st.success("✅ Residuals approximately symmetric")
+                            else:
+                                st.warning("⚠️ Residuals show skewness (asymmetric distribution)")
+                    
+                    except Exception as e:
+                        st.error(f"Error in residual analysis: {str(e)}")
+                        st.info("Advanced residual analysis requires Prophet model results")
+                else:
+                    st.info("🔄 Execute a Prophet forecast to see residual analysis")
+            
+            with st.expander("📊 **Capitolo 3: Forecasting Quality Assessment**", expanded=False):
+                st.markdown("### 🎯 Forecast Quality & Reliability")
+                st.markdown("Valutazione della qualità e affidabilità delle previsioni generate.")
+                
+                # Forecast reliability indicators
+                if hasattr(st.session_state, 'last_forecast_df'):
+                    forecast_df = st.session_state.last_forecast_df
+                    
+                    if not forecast_df.empty:
+                        # Forecast statistics
+                        forecast_col = 'yhat' if 'yhat' in forecast_df.columns else forecast_df.columns[-1]
+                        forecast_values = forecast_df[forecast_col]
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Forecast Mean", f"{forecast_values.mean():.2f}")
+                        with col2:
+                            st.metric("Forecast Std", f"{forecast_values.std():.2f}")
+                        with col3:
+                            cv = (forecast_values.std() / forecast_values.mean()) * 100 if forecast_values.mean() != 0 else 0
+                            st.metric("Coefficient of Variation", f"{cv:.2f}%")
+                        
+                        # Forecast stability assessment
+                        st.markdown("#### 📈 Forecast Stability")
+                        
+                        # Calculate trend in forecast
+                        if len(forecast_values) > 1:
+                            trend_change = forecast_values.iloc[-1] - forecast_values.iloc[0]
+                            trend_pct = (trend_change / forecast_values.iloc[0]) * 100 if forecast_values.iloc[0] != 0 else 0
+                            
+                            if abs(trend_pct) < 5:
+                                st.success(f"✅ Stable forecast trend ({trend_pct:+.2f}%)")
+                            elif abs(trend_pct) < 20:
+                                st.warning(f"⚠️ Moderate forecast trend ({trend_pct:+.2f}%)")
+                            else:
+                                st.error(f"❌ Strong forecast trend ({trend_pct:+.2f}%) - May indicate model instability")
+                        
+                        # Confidence interval analysis (if available)
+                        if 'yhat_lower' in forecast_df.columns and 'yhat_upper' in forecast_df.columns:
+                            avg_interval_width = (forecast_df['yhat_upper'] - forecast_df['yhat_lower']).mean()
+                            avg_forecast = forecast_df['yhat'].mean()
+                            interval_ratio = (avg_interval_width / avg_forecast) * 100 if avg_forecast != 0 else 0
+                            
+                            st.markdown("#### 🎯 Confidence Interval Analysis")
+                            st.metric("Average Interval Width", f"{avg_interval_width:.2f}")
+                            st.metric("Interval/Forecast Ratio", f"{interval_ratio:.2f}%")
+                            
+                            if interval_ratio < 20:
+                                st.success("✅ Narrow confidence intervals (high precision)")
+                            elif interval_ratio < 50:
+                                st.warning("⚠️ Moderate confidence intervals")
+                            else:
+                                st.error("❌ Wide confidence intervals (low precision)")
+                else:
+                    st.info("🔄 Execute a forecast to see quality assessment")
+            
+            with st.expander("📋 **Capitolo 4: Statistical Log & Advanced Metrics**", expanded=False):
+                st.markdown("### 📊 Advanced Statistical Metrics")
+                st.markdown("Log statistico completo con metriche avanzate per analisi approfondita.")
+                
+                # Statistical log section
+                if hasattr(st.session_state, 'last_forecast_metrics'):
+                    st.markdown("#### 📈 Complete Statistical Log")
+                    
+                    # Create comprehensive log
+                    import datetime
+                    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    st.code(f"""
+🔬 ADVANCED DIAGNOSTIC LOG
+Generated: {current_time}
+Model: {st.session_state.get('selected_model', 'Unknown')}
+
+=== PERFORMANCE METRICS ===
+""", language="text")
+                    
+                    # Show all metrics in code format
+                    metrics = st.session_state.last_forecast_metrics
+                    for key, value in metrics.items():
+                        if isinstance(value, (int, float)):
+                            st.code(f"{key.upper()}: {value:.6f}", language="text")
+                    
+                    # Model configuration log
+                    if hasattr(st.session_state, 'model_configs'):
+                        st.markdown("#### ⚙️ Model Configuration Log")
+                        model_name = st.session_state.get('selected_model', 'Unknown')
+                        if model_name in st.session_state.model_configs:
+                            config = st.session_state.model_configs[model_name]
+                            st.code(f"""
+=== MODEL CONFIGURATION ===
+Model: {model_name}
+""", language="text")
+                            for param, value in config.items():
+                                st.code(f"{param}: {value}", language="text")
+                    
+                    # Data quality log
+                    if hasattr(st.session_state, 'cleaned_data'):
+                        df = st.session_state.cleaned_data
+                        st.markdown("#### 📊 Data Quality Log")
+                        st.code(f"""
+=== DATA QUALITY SUMMARY ===
+Total Records: {len(df)}
+Missing Values: {df.isnull().sum().sum()}
+Date Range: {df[st.session_state.date_col].min()} to {df[st.session_state.date_col].max()}
+Target Variable: {st.session_state.target_col}
+Target Mean: {df[st.session_state.target_col].mean():.6f}
+Target Std: {df[st.session_state.target_col].std():.6f}
+""", language="text")
+                else:
+                    st.info("🔄 Execute a forecast to see statistical log")
+        
+        else:
+            st.info("⚠️ **Advanced Diagnostic disponibili dopo l'esecuzione del forecasting.** Esegui un modello di forecasting per vedere le diagnostiche avanzate.")
+            
+            st.markdown("""
+            ### 🔬 Cosa troverai qui:
+            
+            - **📊 Capitolo 1**: Metriche di performance e qualità del modello
+            - **🔍 Capitolo 2**: Analisi dei residui e diagnostiche del modello  
+            - **📊 Capitolo 3**: Valutazione qualità e affidabilità delle previsioni
+            - **📋 Capitolo 4**: Log statistico completo con metriche avanzate
+            
+            Ogni capitolo è organizzato in sezioni espandibili per una navigazione ottimale.
+            """)
 
 # Navigation section - shown when forecast results are available
 if st.session_state.data_loaded and st.session_state.get('forecast_results_available', False):
