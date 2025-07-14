@@ -4,7 +4,7 @@
 from .arima_module import *
 from .holtwinters_module import *
 from .prophet_module import *
-from .sarima_module import *
+from src.modules.forecasting.sarima_module import *
 from .exploratory_module import *
 
 # Moduli di capacity sizing

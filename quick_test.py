@@ -23,16 +23,16 @@ def test_imports():
         import os
         sys.path.insert(0, os.getcwd())
         
-        from modules.config import MODEL_LABELS
+        from src.modules.utils.config import MODEL_LABELS
         print("✅ Config module imported")
         
-        from modules.data_utils import detect_date_column
+        from src.modules.utils.data_utils import detect_date_column
         print("✅ Data utils imported")
         
-        from modules.prophet_enhanced import run_prophet_model
+        from modules.prophet_module import run_prophet_forecast
         print("✅ Prophet enhanced imported")
         
-        from modules.sarima_enhanced import run_sarima_forecast
+        from src.modules.forecasting.sarima_enhanced import run_sarima_forecast
         print("✅ SARIMA enhanced imported")
         
         from modules.arima_enhanced import run_arima_model

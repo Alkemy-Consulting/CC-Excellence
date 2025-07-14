@@ -88,8 +88,8 @@ except ImportError:
     PMDARIMA_AVAILABLE = False
     st.warning("⚠️ Install pmdarima for auto-ARIMA: pip install pmdarima")
 
-from .config import *
-from .data_utils import *
+from src.modules.utils.config import *
+from src.modules.utils.data_utils import *
 
 def check_stationarity(series: pd.Series, significance_level: float = 0.05) -> Dict[str, Any]:
     """

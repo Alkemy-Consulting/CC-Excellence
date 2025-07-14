@@ -14,9 +14,9 @@ from modules.forecast_engine import (
     run_auto_select_forecast, 
     display_forecast_results
 )
-from modules.config import *
-from modules.data_utils import *
-from modules.ui_components import *
+from src.modules.utils.config import *
+from src.modules.utils.data_utils import *
+from src.modules.visualization.ui_components import *
 
 # Page configuration
 st.set_page_config(

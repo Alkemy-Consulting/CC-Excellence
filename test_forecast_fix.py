@@ -37,7 +37,7 @@ def test_basic_forecast():
     try:
         import pandas as pd
         import numpy as np
-        from modules.data_utils import generate_sample_data
+        from src.modules.utils.data_utils import generate_sample_data
         from modules.forecast_engine import run_enhanced_forecast
         
         # Generate sample data

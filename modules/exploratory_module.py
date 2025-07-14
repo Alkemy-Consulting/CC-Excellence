@@ -11,7 +11,7 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from prophet import Prophet
 from sklearn.metrics import mean_absolute_error, mean_squared_error
-from modules.metrics_module import compute_all_metrics
+from src.modules.utils.metrics_module import compute_all_metrics
 
 def plot_decomposition(decomposition, title):
     fig = go.Figure()
@@ -235,7 +235,7 @@ def run_exploratory_analysis(df, date_col, target_col, freq, selected_metrics,
     # Importa le funzioni dei modelli qui per evitare import circolari
     from .prophet_module import run_prophet_forecast
     from .arima_module import run_arima_model
-    from .sarima_module import run_sarima_model
+    from src.modules.forecasting.sarima_module import run_sarima_model
     from .holtwinters_module import run_holt_winters_model
 
     # Parametri base comuni a tutti i modelli

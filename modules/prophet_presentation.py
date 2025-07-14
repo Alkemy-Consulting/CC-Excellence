@@ -11,7 +11,7 @@ from typing import Dict, Optional, Any, List
 import logging
 from datetime import datetime
 
-from .prophet_core import ProphetForecastResult
+from src.modules.forecasting.prophet_core import ProphetForecastResult
 
 logger = logging.getLogger(__name__)
 

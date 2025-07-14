@@ -15,13 +15,13 @@ from dataclasses import asdict
 warnings.filterwarnings('ignore')
 
 # Import new enterprise architecture components
-from .prophet_core import ProphetForecaster, ProphetForecastResult
+from src.modules.forecasting.prophet_core import ProphetForecaster, ProphetForecastResult
 from .prophet_presentation import (
     ProphetPlotFactory, 
     ProphetVisualizationConfig,
     create_prophet_plots
 )
-from .prophet_diagnostics import (
+from src.modules.forecasting.prophet_diagnostics import (
     ProphetDiagnosticAnalyzer,
     ProphetDiagnosticPlots,
     ProphetDiagnosticConfig,
@@ -45,7 +45,7 @@ from .prophet_performance import (
 
 # Advanced ML Features Integration (Phase 5)
 try:
-    from .prophet_ml_advanced import (
+    from src.modules.forecasting.prophet_ml_advanced import (
         create_feature_engineer,
         create_ensemble_forecaster,
         create_hyperparameter_optimizer,
@@ -614,7 +614,7 @@ def run_prophet_diagnostics(df: pd.DataFrame, date_col: str, target_col: str,
     Args:
         df: Original data used for forecasting
         date_col: Name of the date column
-        target_col: Name of the target column  
+        target_col: Name of target column  
         forecast_result: Result from Prophet forecasting
         show_diagnostic_plots: Whether to display diagnostic plots in Streamlit
         

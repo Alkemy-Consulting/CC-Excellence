@@ -20,7 +20,7 @@ from modules.prophet_presentation import (
     ProphetPlotFactory,
     create_prophet_plots
 )
-from modules.prophet_core import ProphetForecastResult
+from src.modules.forecasting.prophet_core import ProphetForecastResult
 from tests.conftest import TestDataValidator
 
 class TestProphetVisualizationConfig:

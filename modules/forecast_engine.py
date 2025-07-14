@@ -12,7 +12,7 @@ warnings.filterwarnings('ignore')
 
 from .prophet_module import run_prophet_forecast, run_prophet_diagnostics
 from .arima_enhanced import run_arima_forecast
-from .sarima_enhanced import run_sarima_forecast  
+from src.modules.forecasting.sarima_enhanced import run_sarima_forecast  
 from .holtwinters_enhanced import run_holtwinters_forecast
 
 def run_enhanced_forecast(df: pd.DataFrame, date_col: str, target_col: str,

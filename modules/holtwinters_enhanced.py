@@ -28,7 +28,7 @@ except ImportError as e:
     st.error(f"Missing required packages for Holt-Winters: {e}")
     st.stop()
 
-from .config import (
+from src.modules.utils.config import (
     MODEL_LABELS, HOLTWINTERS_DEFAULTS, FORECAST_DEFAULTS,
     VISUALIZATION_CONFIG, ERROR_MESSAGES
 )

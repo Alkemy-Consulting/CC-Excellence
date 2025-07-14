@@ -24,8 +24,8 @@ import json
 import redis
 from contextlib import contextmanager
 
-from .prophet_core import ProphetForecaster, ProphetForecastResult
-from .prophet_diagnostics import ProphetDiagnosticAnalyzer
+from src.modules.forecasting.prophet_core import ProphetForecaster, ProphetForecastResult
+from src.modules.forecasting.prophet_diagnostics import ProphetDiagnosticAnalyzer
 
 warnings.filterwarnings('ignore')
 logger = logging.getLogger(__name__)

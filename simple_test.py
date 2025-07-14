@@ -24,7 +24,7 @@ def test_step_by_step():
     # Step 2: Test config module
     print("\n2. Testing config module...")
     try:
-        from modules.config import SUPPORTED_FILE_FORMATS, DEFAULT_FORECAST_HORIZONS
+        from src.modules.utils.config import SUPPORTED_FILE_FORMATS, DEFAULT_FORECAST_HORIZONS
         print(f"   ✓ Config imported")
         print(f"   ✓ File formats: {len(SUPPORTED_FILE_FORMATS)}")
         print(f"   ✓ Forecast horizons: {DEFAULT_FORECAST_HORIZONS}")
@@ -35,7 +35,7 @@ def test_step_by_step():
     # Step 3: Test data utilities
     print("\n3. Testing data utilities...")
     try:
-        from modules.data_utils import generate_sample_data, detect_file_format
+        from src.modules.utils.data_utils import generate_sample_data, detect_file_format
         print("   ✓ Data utils imported")
         
         # Generate sample data

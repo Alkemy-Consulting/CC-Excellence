@@ -9,7 +9,7 @@ def test_ui_consistency():
     
     try:
         # Test import delle funzioni modificate
-        from modules.ui_components import render_prophet_config, render_arima_config, render_sarima_config, render_holtwinters_config
+        from src.modules.visualization.ui_components import render_prophet_config, render_arima_config, render_sarima_config, render_holtwinters_config
         print("✅ Import delle funzioni UI completato")
         
         # Test import della funzione display modificata

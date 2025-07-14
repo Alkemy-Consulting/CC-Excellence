@@ -121,7 +121,7 @@ def test_exact_sarima_error():
             
         # Test the config import too
         try:
-            from modules.config import (
+            from src.modules.utils.config import (
                 MODEL_LABELS, SARIMA_DEFAULTS, FORECAST_DEFAULTS,
                 VISUALIZATION_CONFIG, ERROR_MESSAGES
             )

@@ -23,18 +23,18 @@ def test_app_imports():
             return False
         
         # Test individual model imports
-        from modules.prophet_enhanced import run_prophet_model
+        from modules.prophet_module import run_prophet_forecast
         from modules.arima_enhanced import run_arima_model
-        from modules.sarima_enhanced import run_sarima_forecast, SARIMA_AVAILABLE
+        from src.modules.forecasting.sarima_enhanced import run_sarima_forecast, SARIMA_AVAILABLE
         from modules.holtwinters_enhanced import run_holtwinters_forecast
         
         print("✅ All individual model modules imported successfully")
         print(f"SARIMA specifically available: {SARIMA_AVAILABLE}")
         
         # Test config and utilities
-        from modules.config import MODEL_LABELS
-        from modules.data_utils import detect_date_column
-        from modules.ui_components import render_data_upload_section
+        from src.modules.utils.config import MODEL_LABELS
+        from src.modules.utils.data_utils import detect_date_column
+        from src.modules.visualization.ui_components import render_data_upload_section
         
         print("✅ Config and utility modules imported successfully")
         

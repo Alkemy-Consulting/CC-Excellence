@@ -17,7 +17,7 @@ try:
         SEASONAL_PERIODS_MAP, MISSING_HANDLING_OPTIONS
     )
 except ImportError:
-    from modules.config import (
+    from .config import (
         DATE_COLUMN_NAMES, VALUE_COLUMN_NAMES, DATE_FORMATS, 
         SEASONAL_PERIODS_MAP, MISSING_HANDLING_OPTIONS
     )

@@ -13,7 +13,7 @@ import os
 # Add project root to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from modules.prophet_core import ProphetForecaster, ProphetForecastResult
+from src.modules.forecasting.prophet_core import ProphetForecaster, ProphetForecastResult
 from tests.conftest import TestDataValidator, PerformanceBenchmark
 
 class TestProphetForecaster:

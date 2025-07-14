@@ -25,12 +25,12 @@ def main():
         
         # Test 2: Config import
         print("\n2. Testing config module...")
-        from modules.config import SUPPORTED_FILE_FORMATS, DEFAULT_FORECAST_HORIZONS
+        from src.modules.utils.config import SUPPORTED_FILE_FORMATS, DEFAULT_FORECAST_HORIZONS
         print(f"   ✓ Config loaded - {len(SUPPORTED_FILE_FORMATS)} file formats supported")
         
         # Test 3: Data utilities
         print("\n3. Testing data utilities...")
-        from modules.data_utils import generate_sample_data
+        from src.modules.utils.data_utils import generate_sample_data
         df = generate_sample_data(days=60)
         print(f"   ✓ Sample data generated: {df.shape}")
         print(f"   ✓ Date range: {df['date'].min()} to {df['date'].max()}")
@@ -69,7 +69,7 @@ def main():
         # Test 5: UI Components (basic check)
         print("\n5. Testing UI components...")
         try:
-            from modules.ui_components import render_metric_card
+            from src.modules.visualization.ui_components import render_metric_card
             print("   ✓ UI components imported successfully")
         except Exception as e:
             print(f"   ⚠️ UI components warning: {str(e)[:50]}... (expected without Streamlit context)")

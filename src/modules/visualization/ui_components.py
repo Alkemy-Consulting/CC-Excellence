@@ -11,14 +11,14 @@ import plotly.express as px
 from typing import Dict, List, Tuple, Optional, Any
 from datetime import datetime, timedelta
 
-from .config import *
-from .data_utils import *
-from .config import SUPPORTED_HOLIDAY_COUNTRIES
-from .data_utils import get_holidays_for_country, parse_manual_holidays
+from ..utils.config import *
+from ..utils.data_utils import *
+from ..utils.config import SUPPORTED_HOLIDAY_COUNTRIES
+from ..utils.data_utils import get_holidays_for_country, parse_manual_holidays
 
 # Import model configuration functions
 try:
-    from .prophet_module import render_prophet_config
+    from ...prophet_module import render_prophet_config
 except ImportError:
     def render_prophet_config():
         """Renderizza i parametri di configurazione per Prophet"""
@@ -200,7 +200,7 @@ except ImportError:
             return config
 
 try:
-    from .arima_module import render_arima_config
+    from ...arima_module import render_arima_config
 except ImportError:
     def render_arima_config():
         """Renderizza i parametri di configurazione per ARIMA"""
@@ -264,7 +264,7 @@ except ImportError:
             return config
 
 try:
-    from .sarima_module import render_sarima_config
+    from ..forecasting.sarima_module import render_sarima_config
 except ImportError:
     def render_sarima_config():
         """Render SARIMA configuration with proper type conversion"""
@@ -312,7 +312,7 @@ except ImportError:
             return config
 
 try:
-    from .holtwinters_module import render_holtwinters_config
+    from ...holtwinters_module import render_holtwinters_config
 except ImportError:
     def render_holtwinters_config():
         """Render Holt-Winters configuration with proper type conversion"""

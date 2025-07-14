@@ -26,13 +26,13 @@ def test_imports():
         print("✅ Core libraries imported")
         
         # Project modules
-        from modules.config import *
+        from src.modules.utils.config import *
         print("✅ Config module imported")
         
-        from modules.data_utils import *
+        from src.modules.utils.data_utils import *
         print("✅ Data utils module imported")
         
-        from modules.ui_components import *
+        from src.modules.visualization.ui_components import *
         print("✅ UI components module imported")
         
         from modules.forecast_engine import *
@@ -58,7 +58,7 @@ def test_data_generation():
     print("\n📊 Testing data generation...")
     
     try:
-        from modules.data_utils import generate_sample_data
+        from src.modules.utils.data_utils import generate_sample_data
         
         # Generate sample data
         df = generate_sample_data()
@@ -119,7 +119,7 @@ def test_forecast_functionality(df):
     
     try:
         from modules.forecast_engine import run_enhanced_forecast
-        from modules.config import DEFAULT_MODEL_CONFIGS
+        from src.modules.utils.config import DEFAULT_MODEL_CONFIGS
         
         # Prepare data
         df_prepared = df.copy()
@@ -156,7 +156,7 @@ def test_data_processing():
     print("\n🛠️ Testing data processing utilities...")
     
     try:
-        from modules.data_utils import (
+        from src.modules.utils.data_utils import (
             detect_date_columns, 
             detect_numeric_columns,
             calculate_data_statistics,

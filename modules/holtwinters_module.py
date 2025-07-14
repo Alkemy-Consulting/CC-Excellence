@@ -6,7 +6,7 @@ from statsmodels.tsa.holtwinters import ExponentialSmoothing
 import plotly.graph_objects as go
 import io
 from sklearn.metrics import mean_absolute_error, mean_squared_error
-from modules.metrics_module import compute_all_metrics
+from src.modules.utils.metrics_module import compute_all_metrics
 
 def run_holt_winters_model(df: pd.DataFrame, date_col: str, target_col: str, horizon: int, selected_metrics: list, params: dict, return_metrics=False):
     """
