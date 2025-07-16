@@ -388,7 +388,7 @@ def render_data_upload_section() -> Tuple[Optional[pd.DataFrame], Optional[str],
     Returns:
         Tuple: (dataframe, date_column, target_column, upload_config)
     """
-    st.header("1. 📂 Data Source")
+    st.header("1. Data Source")
 
     # Data source selection
     use_sample_dataset = st.checkbox(
@@ -564,7 +564,7 @@ def render_data_cleaning_section(df: pd.DataFrame, date_col: str, target_col: st
     Returns:
         Tuple: (cleaned_dataframe, cleaning_config)
     """
-    st.header("2. 🧹 Data Cleaning & Preprocessing")
+    st.header("2. Data Cleaning")
     
     cleaning_config = {}
     
@@ -781,7 +781,7 @@ def render_model_selection_section() -> Tuple[str, Dict[str, Any]]:
     Returns:
         Tuple: (selected_model, model_configs)
     """
-    st.header("4. 🤖 Model Selection & Configuration")
+    st.header("4. Model Configuration")
 
     # Model selection
     model = st.selectbox(
@@ -816,7 +816,7 @@ def render_external_regressors_section(df: pd.DataFrame, date_col: str, target_c
     """
     Renderizza la sezione per la configurazione dei regressori esterni
     """
-    st.header("3. 📈 External Regressors & Holidays")
+    st.header("3. External Regressors")
 
     regressor_config = {
         'holidays_df': None,
@@ -984,7 +984,7 @@ def render_forecast_config_section() -> Dict[str, Any]:
     """
     Renderizza la sezione per la configurazione del forecast
     """
-    st.header("5. 🎯 Forecast Settings")
+    st.header("5. Forecast Settings")
     
     with st.expander("⚙️ Forecast Parameters", expanded=False):
         config = {}
@@ -1214,7 +1214,7 @@ def render_output_config_section() -> Dict[str, Any]:
     """
     Renderizza la sezione per la configurazione dell'output
     """
-    st.header("6. 💾 Output & Export")
+    st.header("6. Output Configuration")
     
     with st.expander("⚙️ Output Configuration", expanded=False):
         config = {}
