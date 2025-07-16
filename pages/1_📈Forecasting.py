@@ -159,7 +159,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
     stats = get_data_statistics(df_clean, date_col, target_col)
 
     # Create tabs for organizing content
-    tab1, tab2, tab3 = st.tabs(["📊 Data Series Analysis", "Forecasting Results", "🔬 Advanced Diagnostic"])
+    tab1, tab2, tab3 = st.tabs(["Data Series Analysis", "Forecasting Results", "Advanced Diagnostic"])
     
     with tab1:
         # Key Dataset Metrics in horizontal layout
@@ -376,7 +376,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                     st.markdown(f"• {issue}")
         
         # Time Series Decomposition Analysis
-        st.subheader("🔄 Time Series Decomposition")
+        st.subheader("Time Series Decomposition")
         st.write("Time series decomposition breaks down the series into its fundamental components: trend, seasonality, and residuals. This helps understand the underlying patterns in the data.")
         
         try:
@@ -686,7 +686,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                         pass
                 
                 # Distribution Analysis
-                st.markdown("### 📊 Distribution Analysis")
+                st.markdown("### Distribution Analysis")
                 dist_cols = st.columns(2)
                 
                 with dist_cols[0]:
