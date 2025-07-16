@@ -45,7 +45,7 @@ if 'forecast_config' not in st.session_state:
 
 # Main workflow in sidebar
 with st.sidebar:
-    st.markdown("## 🔧 Configuration Workflow")
+    
     
     # Step 1: Data Upload
     df, date_col, target_col, upload_config = render_data_upload_section()

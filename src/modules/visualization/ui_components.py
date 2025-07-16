@@ -106,7 +106,7 @@ except ImportError:
             config['seasonality_prior_scale'] = st.slider(
                 "Seasonality Strength",
                 min_value=0.01,
-                max_value=10.0,
+                max_value=100.0,
                 value=10.0,
                 step=0.01,
                 disabled=is_disabled,
