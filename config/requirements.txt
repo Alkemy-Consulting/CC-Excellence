@@ -10,10 +10,7 @@ cython==0.29.36
 openpyxl>=3.0.0
 ortools
 scipy>=1.9.0
-queueing-tool>=1.2.6
 simpy>=4.0.1
-erlang>=0.3.0
-pyworkforce>=1.0.0
 pmdarima>=2.0.0
 seaborn>=0.11.0
 reportlab>=3.6.0
