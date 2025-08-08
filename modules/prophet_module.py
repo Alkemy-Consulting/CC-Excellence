@@ -35,10 +35,8 @@ from .prophet_performance import (
     OptimizedProphetForecaster,
     PerformanceMonitor,
     DataFrameOptimizer,
-    PerformanceTuner,
     create_optimized_forecaster,
     create_dataframe_optimizer,
-    create_performance_tuner,
     get_performance_report,
     performance_monitor
 )
@@ -313,6 +311,10 @@ if not logger.handlers:
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
+from modules.holidays import get_holidays
+
+
+
 def create_prophet_forecast_chart(model, forecast_df, actual_data, date_col, target_col, confidence_interval=0.8):
     """
     Legacy wrapper for backward compatibility - delegates to enterprise architecture
@@ -536,27 +538,27 @@ def run_prophet_forecast_optimized(df: pd.DataFrame, date_col: str, target_col: 
         if enable_optimization:
             # Initialize optimization components
             optimizer = create_dataframe_optimizer()
-            tuner = create_performance_tuner()
             forecaster = create_optimized_forecaster(enable_parallel=True)
             
             # Optimize DataFrame
             df_optimized = optimizer.optimize_dataframe(df.copy())
             logger.info(f"DataFrame optimized: {optimizer.get_optimization_stats()['memory_savings_pct']:.1f}% memory saved")
-            
-            # Auto-tune configuration
-            tuned_model_config, tuned_base_config = tuner.auto_tune_model_config(
+
+            # Auto-tune configuration using new optimization logic
+            from modules.prophet_performance import optimize_prophet_hyperparameters
+            tuned_model_config, tuned_base_config, _ = optimize_prophet_hyperparameters(
                 df_optimized, model_config, base_config
             )
-            
+
             logger.info("Auto-tuning applied for optimal performance")
-            
+
         else:
             # Use standard components
             df_optimized = df.copy()
             tuned_model_config = model_config
             tuned_base_config = base_config
             forecaster = ProphetForecaster()
-        
+
         # Run forecast with performance monitoring
         with performance_monitor.monitor_execution("optimized_prophet_forecast") as monitor:
             result = forecaster.run_forecast_core(
@@ -581,12 +583,6 @@ def run_prophet_forecast_optimized(df: pd.DataFrame, date_col: str, target_col: 
             # Add optimization metrics if applied
             if enable_optimization and 'optimizer' in locals():
                 performance_report['dataframe_optimization'] = optimizer.get_optimization_stats()
-            
-            if enable_optimization and 'tuner' in locals():
-                performance_report['auto_tuning'] = {
-                    'tuning_history': tuner.tuning_history[-1] if tuner.tuning_history else {},
-                    'config_changes_applied': len(tuner.tuning_history) > 0
-                }
             
             # Convert to legacy format for backward compatibility
             forecast_output = result.raw_forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()

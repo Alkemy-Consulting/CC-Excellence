@@ -170,34 +170,8 @@ except ImportError:
             if config['growth'] == 'logistic':
                 st.warning("⚠️ Logistic growth requires 'cap' column in data")
             
-            # Visualization Options
-            st.subheader("🎨 Visualization Options")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                config['show_components'] = st.checkbox(
-                    "Show Component Plots",
-                    value=True,
-                    help="Display trend, seasonal, and holiday components"
-                )
-            
-            with col2:
-                config['show_residuals'] = st.checkbox(
-                    "Show Residuals Analysis",
-                    value=True,
-                    help="Display residuals plot for model diagnostics"
-                )
-            
-            config['plot_height'] = st.slider(
-                "Plot Height (px)",
-                min_value=300,
-                max_value=800,
-                value=500,
-                step=50,
-                help="Height of forecast plots"
-            )
-            
-            return config
+        
+           
 
 try:
     from ...arima_module import render_arima_config
@@ -403,7 +377,6 @@ def render_data_upload_section() -> Tuple[Optional[pd.DataFrame], Optional[str],
     upload_config = {}
 
     if use_sample_dataset:
-        st.info("📊 Using automatically generated sample dataset with trend and seasonality")
         df = generate_sample_data()
         date_col = 'date'
         target_col = 'volume'
@@ -822,59 +795,7 @@ def render_external_regressors_section(df: pd.DataFrame, date_col: str, target_c
         'holidays_df': None,
         'selected_regressors': []
     }
-    holidays_df = None
-
-    with st.expander("📅 Holiday Effects", expanded=False):
-        add_holidays = st.checkbox(
-            "Add Holiday Effects",
-            value=False,
-            help="Include holiday effects in the forecast"
-        )
-
-        if add_holidays:
-            holiday_source = st.radio(
-                "Select holiday source",
-                ["Select Country", "Manual Input"],
-                horizontal=True,
-                key="holiday_source"
-            )
-
-            if holiday_source == "Select Country":
-                country_code = st.selectbox(
-                    "Select Country for Holidays",
-                    options=[None] + list(SUPPORTED_HOLIDAY_COUNTRIES.keys()),
-                    format_func=lambda x: SUPPORTED_HOLIDAY_COUNTRIES.get(x, "None"),
-                    help="Automatically include national holidays for the selected country."
-                )
-                if country_code:
-                    try:
-                        holidays_df = get_holidays_for_country(country_code, df[date_col])
-                        st.success(f"✅ Loaded {len(holidays_df)} holidays for {SUPPORTED_HOLIDAY_COUNTRIES[country_code]}")
-                        if not holidays_df.empty:
-                            st.dataframe(holidays_df.head(), height=150)
-                    except Exception as e:
-                        st.error(f"Could not load holidays: {e}")
-            
-            elif holiday_source == "Manual Input":
-                st.info("Enter holiday names and dates. Format: YYYY-MM-DD, Holiday Name")
-                manual_holidays_text = st.text_area(
-                    "Manual Holidays (one per line)",
-                    "2024-01-01, New Year\n2024-12-25, Christmas",
-                    height=150,
-                    help="Provide holidays in 'YYYY-MM-DD, Holiday Name' format."
-                )
-                if st.button("Parse Manual Holidays"):
-                    try:
-                        holidays_df = parse_manual_holidays(manual_holidays_text)
-                        st.success(f"✅ Parsed {len(holidays_df)} manual holidays.")
-                        if not holidays_df.empty:
-                            st.dataframe(holidays_df.head(), height=150)
-                    except Exception as e:
-                        st.error(f"❌ Error parsing holidays: {e}")
-
-    if holidays_df is not None and not holidays_df.empty:
-        regressor_config['holidays_df'] = holidays_df
-
+    
     with st.expander("📊 External Regressors", expanded=False):
         # Get potential regressor columns
         potential_regressors = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -1192,127 +1113,49 @@ def render_forecast_config_section() -> Dict[str, Any]:
                     help="Types of backtesting plots to show"
                 )
     
-    # Metrics selection
-    with st.expander("📏 Evaluation Metrics", expanded=False):
-        config['metrics_to_calculate'] = st.multiselect(
-            "Select Metrics to Calculate",
-            options=list(METRICS_DEFINITIONS.keys()),
-            default=['MAPE', 'MAE', 'RMSE'],
-            help="Metrics to calculate and display"
-        )
-        
-        config['display_metric_plots'] = st.checkbox(
-            "Display Metric Plots",
-            value=True,
-            help="Show visual plots of metric performance"
-        )
-    
     return config
-
 
 def render_output_config_section() -> Dict[str, Any]:
     """
-    Renderizza la sezione per la configurazione dell'output
+    Renderizza la sezione per la configurazione dell'output del forecast
     """
-    st.header("6. Output Configuration")
+    config = {
+        'show_components': True,
+        'plot_style': 'Detailed',
+        'export_format': ['CSV'],
+        'show_metrics': True
+    }
     
-    with st.expander("⚙️ Output Configuration", expanded=False):
-        config = {}
-        
-        # Metrics selection
-        config['show_metrics'] = st.checkbox(
-            "Show Evaluation Metrics",
-            value=True,
-            help="Display evaluation metrics for the forecast"
-        )
-        
-        if config['show_metrics']:
-            config['metrics_list'] = st.multiselect(
-                "Select Metrics",
-                options=list(METRICS_DEFINITIONS.keys()),
-                default=['MAPE', 'MAE', 'RMSE'],
-                help="Metrics to display in the output"
-            )
-        
+    with st.expander("📊 Output Configuration", expanded=False):
         # Visualization options
-        config['show_forecast'] = st.checkbox(
-            "Show Forecast Plot",
-            value=True,
-            help="Display the forecasted values plot"
-        )
-        
         config['show_components'] = st.checkbox(
             "Show Forecast Components",
             value=True,
-            help="Display trend, seasonality, and other components"
+            help="Display trend, seasonal, and residual components"
         )
         
-        config['show_residuals'] = st.checkbox(
-            "Show Residual Analysis",
+        config['plot_style'] = st.selectbox(
+            "Plot Style",
+            ['Simple', 'Detailed', 'Compact'],
+            index=1,
+            help="Visual style for forecast plots"
+        )
+        
+        # Export options
+        config['export_format'] = st.multiselect(
+            "Export Format",
+            ['CSV', 'Excel', 'JSON'],
+            default=['CSV'],
+            help="Format for exporting forecast results"
+        )
+        
+        # Metrics display
+        config['show_metrics'] = st.checkbox(
+            "Show Performance Metrics",
             value=True,
-            help="Display residual plots for model diagnostics"
+            help="Display forecast accuracy metrics"
         )
         
-        config['interactive_plots'] = st.checkbox(
-            "Interactive Plots",
-            value=True,
-            help="Enable zoom, pan, and hover features in plots"
-        )
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            config['plot_height'] = st.number_input(
-                "Plot Height",
-                min_value=300,
-                max_value=800,
-                value=500,
-                help="Height of forecast plots in pixels"
-            )
-        
-        with col2:
-            config['color_scheme'] = st.selectbox(
-                "Color Scheme",
-                ['plotly', 'seaborn', 'custom'],
-                help="Color palette for plots"
-            )
-    
-    # Export options
-    with st.expander("💾 Export Options", expanded=False):
-        config['enable_export'] = st.checkbox(
-            "Enable Export Features",
-            value=True,
-            help="Allow downloading results in various formats"
-        )
-        
-        if config['enable_export']:
-            config['export_formats'] = st.multiselect(
-                "Export Formats",
-                options=['CSV', 'Excel', 'JSON', 'PDF Report'],
-                default=['CSV', 'Excel'],
-                help="Available download formats for results"
-            )
-            
-            if 'PDF Report' in config['export_formats']:
-                config['pdf_options'] = {
-                    'include_plots': st.checkbox("Include Plots in PDF", value=True),
-                    'include_metrics': st.checkbox("Include Metrics Table", value=True),
-                    'include_summary': st.checkbox("Include Model Summary", value=True)
-                }
-    
-    # Real-time monitoring
-    with st.expander("🔄 Real-time Features", expanded=False):
-        config['auto_refresh'] = st.checkbox(
-            "Auto Refresh Results",
-            value=False,
-            help="Automatically refresh forecast when parameters change"
-        )
-        
-        if config['auto_refresh']:
-            config['refresh_interval'] = st.selectbox(
-                "Refresh Interval",
-                [5, 10, 30, 60],
-                index=1,
-                help="Seconds between automatic refreshes"
-            )
-    
     return config
+
+

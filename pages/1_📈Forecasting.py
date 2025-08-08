@@ -112,35 +112,9 @@ with st.sidebar:
 
 # Main content area - FIXED STATE MANAGEMENT
 if not st.session_state.data_loaded:
-    # Welcome screen
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("""
-        ## 🎯 Welcome to Contact Center Forecasting!
-        
-        This advanced forecasting tool helps you predict future call volumes, 
-        staffing needs, and capacity requirements using state-of-the-art 
-        time series models.
-        
-        ### 🚀 Features:
-        - **📊 Multiple Models**: Prophet, ARIMA, SARIMA, Holt-Winters
-        - **🔧 Auto-tuning**: Automatic parameter optimization
-        - **📈 Advanced Analytics**: Seasonality, holidays, external regressors
-        - **📋 Export Options**: CSV, Excel, PDF reports
-        - **🎨 Rich Visualizations**: Interactive plots and diagnostics
-        
-        ### 🏁 Getting Started:
-        1. **Upload your data** or use the sample dataset
-        2. **Configure preprocessing** options
-        3. **Select and tune** your forecasting model
-        4. **Generate forecasts** and analyze results
-        
-        👈 **Start by configuring your data in the sidebar**
-        """)
-        
-        # Quick start with sample data
-        if st.button("🎯 Quick Start with Sample Data", type="primary"):
-            st.rerun()
+    # Initial state: prompt user to load data from the sidebar
+    st.markdown("##  Forecasting Tool")
+    st.info("� **Inizia caricando i tuoi dati o selezionando un set di dati di esempio dalla barra laterale.**")
 
 elif st.session_state.data_loaded and not st.session_state.get('forecast_results_available', False):
     # Data loaded - show analysis page (regardless of forecast button state)
@@ -331,50 +305,8 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                     st.metric("🔍 Frequency", "Irregular")
             except:
                 st.metric("🔍 Frequency", "Unknown")
-        
-        # Data quality score and consolidated message
-        quality_score = 100
-        issues = []
-        
-        if stats['missing_percentage'] > 5:
-            quality_score -= 20
-            issues.append(f"High missing values ({stats['missing_percentage']:.2f}%)")
-        
-        if stats.get('duplicate_dates', 0) > 0:
-            quality_score -= 15
-            issues.append(f"Duplicate dates ({stats['duplicate_dates']})")
-        
-        if outlier_stats['percentage'] > 10:
-            quality_score -= 15
-            issues.append(f"High outlier percentage ({outlier_stats['percentage']:.2f}%)")
-        
-        # Calculate variance
-        if stats['std_value'] == 0:
-            quality_score -= 30
-            issues.append("Zero variance in target")
-        
-        # Display consolidated quality message
-        if quality_score >= 80:
-            if issues:
-                st.success(f"✅ Excellent Quality: {quality_score}/100")
-                st.markdown("**⚠️ Minor Issues Detected:**")
-                for issue in issues:
-                    st.markdown(f"• {issue}")
-            else:
-                st.success(f"🎯 **Excellent Quality: {quality_score}/100** | 🎉 No data quality issues detected!")
-        elif quality_score >= 60:
-            st.warning(f"⚠️ **Good Quality: {quality_score}/100**")
-            if issues:
-                st.markdown("**Issues to consider:**")
-                for issue in issues:
-                    st.markdown(f"• {issue}")
-        else:
-            st.error(f"❌ **Poor Quality: {quality_score}/100**")
-            if issues:
-                st.markdown("**Critical Issues:**")
-                for issue in issues:
-                    st.markdown(f"• {issue}")
-        
+       
+            
         # Time Series Decomposition Analysis
         st.subheader("Time Series Decomposition")
         st.write("Time series decomposition breaks down the series into its fundamental components: trend, seasonality, and residuals. This helps understand the underlying patterns in the data.")
@@ -816,13 +748,17 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
             
             if df_clean is not None and len(df_clean) > 0 and date_col and target_col:
                 try:
-                    # Get stored configurations
+                    # Get stored configurations with safe defaults
                     selected_model = st.session_state.get('selected_model', 'Prophet')
-                    forecast_config = st.session_state.get('forecast_config', {
-                        'forecast_periods': 30,
-                        'confidence_interval': 0.95
-                    })
-                    model_configs = st.session_state.get('model_configs', {})
+                    forecast_config = st.session_state.get('forecast_config')
+                    if not forecast_config:
+                        forecast_config = {
+                            'forecast_periods': 30,
+                            'confidence_interval': 0.95
+                        }
+                    model_configs = st.session_state.get('model_configs')
+                    if not model_configs:
+                        model_configs = {}
                     
                     # Prepare forecast configuration
                     base_config = {
@@ -845,8 +781,17 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                                 st.error("❌ Auto-select failed. No models succeeded.")
                         
                         else:
-                            # Run single model
-                            model_config = model_configs.get(selected_model, {})
+                            # Run single model with safe model configuration
+                            model_config = model_configs.get(selected_model, {}) if model_configs else {}
+                            if model_config is None:
+                                model_config = {
+                                    'growth': 'linear',
+                                    'yearly_seasonality': True,
+                                    'weekly_seasonality': True,
+                                    'daily_seasonality': False,
+                                    'seasonality_mode': 'additive'
+                                }
+                                
                             forecast_df, metrics, plots = run_enhanced_forecast(
                                 df_clean, date_col, target_col, selected_model, model_config, base_config
                             )
@@ -1255,8 +1200,8 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                     - **Trend forte (>20%)**: Cambiamenti drastici previsti - verifica la plausibilità
                     - **Intervalli larghi**: Alta incertezza - usa le previsioni con cautela
                     """)
-            else:
-                st.info("🔄 Esegui un forecast per vedere la valutazione qualità")
+                else:
+                    st.info("🔄 Esegui un forecast per vedere la valutazione qualità")
             
             st.markdown("---")
             

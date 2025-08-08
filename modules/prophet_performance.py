@@ -465,629 +465,115 @@ class DataFrameOptimizer:
         """Get optimization statistics"""
         return self.optimization_stats.copy()
 
-class PerformanceTuner:
-    """Advanced performance tuning for Prophet models with cross-validation optimization"""
-    
-    def __init__(self):
-        self.tuning_history = []
-        self.optimal_params = {}
-        self.cv_results = {}
-        self.best_metrics = {}
-    
-    def auto_tune_model_config(self, df: pd.DataFrame, model_config: dict, base_config: dict, 
-                              enable_cv_optimization: bool = True) -> Tuple[dict, dict, Dict[str, float]]:
-        """
-        Automatically tune model configuration using cross-validation and error metrics optimization.
 
-        Args:
-            df (pd.DataFrame): Input data for tuning.
-            model_config (dict): Initial model configuration.
-            base_config (dict): Base configuration.
-            enable_cv_optimization (bool): Flag to enable cross-validation optimization.
+def optimize_prophet_hyperparameters(
+    df: pd.DataFrame,
+    date_col: str,
+    target_col: str,
+    base_config: dict,
+    n_trials: int = 50,
+    timeout: int = 600
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Optimizes Prophet hyperparameters using Optuna to minimize cross-validation RMSE.
 
-        Returns:
-            Tuple[dict, dict, Dict[str, float]]: Optimized model config, base config, and optimization metrics.
-        """
-        try:
-            # Validate input data
-            if df.empty or len(df) < 10:
-                raise ValueError("Insufficient data for tuning. Minimum 10 rows required.")
+    Args:
+        df (pd.DataFrame): The input dataframe with time series data.
+        date_col (str): Name of the date column.
+        target_col (str): Name of the target value column.
+        base_config (dict): Base configuration containing forecast settings.
+        n_trials (int): Number of optimization trials to run.
+        timeout (int): Timeout for the optimization process in seconds.
 
-            data_size = len(df)
-            date_range_days = (df.iloc[-1, 0] - df.iloc[0, 0]).days if len(df) > 1 else 1
-
-            optimization_metrics = {
-                'initial_rmse': float('inf'),
-                'optimized_rmse': float('inf'),
-                'initial_mape': float('inf'),
-                'optimized_mape': float('inf'),
-                'improvement_pct': 0.0,
-                'cv_folds': 0,
-                'optimization_time': 0.0
-            }
-
-            start_time = time.time()
-
-            # Step 1: Apply basic heuristic optimizations
-            base_optimized_config = self._apply_heuristic_optimizations(
-                df, model_config, base_config, data_size, date_range_days
-            )
-
-            # Step 2: Apply cross-validation optimization if enabled and data is sufficient
-            if enable_cv_optimization and data_size >= 100 and date_range_days >= 90:
-                try:
-                    cv_optimized_config, cv_metrics = self._optimize_with_cross_validation(
-                        df, base_optimized_config, base_config
-                    )
-                    optimization_metrics.update(cv_metrics)
-                    final_config = cv_optimized_config
-                except Exception as e:
-                    logger.warning(f"Cross-validation optimization failed: {e}. Using heuristic optimization.")
-                    final_config = base_optimized_config
-            else:
-                final_config = base_optimized_config
-                logger.info("Cross-validation optimization skipped due to insufficient data or disabled setting")
-
-            # Step 3: Apply final performance optimizations
-            optimized_config, optimized_base_config = self._apply_performance_optimizations(
-                final_config, base_config, data_size, date_range_days
-            )
-
-            optimization_metrics['optimization_time'] = time.time() - start_time
-
-            # Record tuning history
-            self.tuning_history.append({
-                'timestamp': datetime.now().isoformat(),
-                'data_size': data_size,
-                'date_range_days': date_range_days,
-                'optimization_metrics': optimization_metrics,
-                'config_changes': self._compare_configs(model_config, optimized_config),
-                'cv_enabled': enable_cv_optimization
-            })
-
-            logger.info(f"Advanced auto-tuning completed in {optimization_metrics['optimization_time']:.2f}s")
-            if optimization_metrics['improvement_pct'] > 0:
-                logger.info(f"RMSE improvement: {optimization_metrics['improvement_pct']:.2f}%")
-
-            return optimized_config, optimized_base_config, optimization_metrics
-
-        except ValueError as ve:
-            logger.error(f"Validation error during auto-tuning: {ve}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error during auto-tuning: {e}")
-            raise
-    
-    def _apply_heuristic_optimizations(self, df: pd.DataFrame, model_config: dict, 
-                                     base_config: dict, data_size: int, date_range_days: int) -> dict:
-        """Apply heuristic-based optimizations based on data characteristics"""
-        optimized_config = model_config.copy()
-        
-        # Data size-based optimizations
-        if data_size < 100:
-            optimized_config['changepoint_prior_scale'] = 0.1
-            optimized_config['seasonality_prior_scale'] = 5.0
-        elif data_size > 1000:
-            optimized_config['changepoint_prior_scale'] = 0.01
-            optimized_config['seasonality_prior_scale'] = 15.0
-        else:
-            optimized_config['changepoint_prior_scale'] = 0.05
-            optimized_config['seasonality_prior_scale'] = 10.0
-        
-        # Date range optimizations
-        if date_range_days < 365:
-            optimized_config['yearly_seasonality'] = False
-        if date_range_days < 14:
-            optimized_config['weekly_seasonality'] = False
-        
-        # Volatility-based optimizations
-        if len(df) > 10:
-            target_col = df.columns[1]  # Assume second column is target
-            volatility = df[target_col].std() / df[target_col].mean()
-            
-            if volatility > 0.3:  # High volatility
-                optimized_config['changepoint_prior_scale'] = min(0.1, optimized_config.get('changepoint_prior_scale', 0.05) * 2)
-            elif volatility < 0.05:  # Low volatility
-                optimized_config['changepoint_prior_scale'] = max(0.001, optimized_config.get('changepoint_prior_scale', 0.05) * 0.5)
-        
-        return optimized_config
-    
-    def _optimize_with_cross_validation(self, df: pd.DataFrame, initial_config: dict, 
-                                       base_config: dict) -> Tuple[dict, Dict[str, float]]:
-        """Optimize parameters using cross-validation and grid search"""
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]: A tuple containing the best model 
+        configuration and a dictionary with optimization study results.
+    """
+    try:
+        import optuna
         from prophet import Prophet
         from prophet.diagnostics import cross_validation, performance_metrics
+    except ImportError:
+        logger.error("Optuna and Prophet are required for hyperparameter optimization.")
+        raise
+
+    prophet_df = df[[date_col, target_col]].rename(columns={date_col: 'ds', target_col: 'y'})
+
+    def objective(trial: optuna.Trial) -> float:
+        """Objective function for Optuna to minimize."""
         
-        # Define parameter grid for optimization
-        param_grid = {
-            'changepoint_prior_scale': [0.001, 0.01, 0.05, 0.1, 0.5],
-            'seasonality_prior_scale': [0.01, 0.1, 1.0, 10.0, 100.0],
-            'holidays_prior_scale': [0.01, 0.1, 1.0, 10.0, 100.0] if initial_config.get('holidays') else [10.0]
+        # Define search space for hyperparameters
+        params = {
+            'changepoint_prior_scale': trial.suggest_float('changepoint_prior_scale', 0.001, 0.5, log=True),
+            'seasonality_prior_scale': trial.suggest_float('seasonality_prior_scale', 0.01, 10.0, log=True),
+            'holidays_prior_scale': trial.suggest_float('holidays_prior_scale', 0.01, 10.0, log=True),
+            'seasonality_mode': trial.suggest_categorical('seasonality_mode', ['additive', 'multiplicative']),
+            'changepoint_range': trial.suggest_float('changepoint_range', 0.8, 0.95),
         }
-        
-        # Prepare data for Prophet
-        prophet_df = df.copy()
-        prophet_df.columns = ['ds', 'y']
-        
-        # Determine CV parameters based on data size
-        cv_horizon = min(30, len(df) // 10)  # 10% of data or 30 days max
-        cv_initial = max(len(df) // 2, 60)  # At least 60 days or 50% of data
-        cv_period = max(cv_horizon // 2, 7)  # At least 7 days
-        
-        best_config = initial_config.copy()
-        best_rmse = float('inf')
-        best_mape = float('inf')
-        cv_results = []
-        
-        # Limit combinations for performance
-        max_combinations = 10000  # Increased limit for deeper search
-        param_combinations = []
-        
-        for cp in param_grid['changepoint_prior_scale']:
-            for sp in param_grid['seasonality_prior_scale']:
-                for hp in param_grid['holidays_prior_scale']:
-                    param_combinations.append({
-                        'changepoint_prior_scale': cp,
-                        'seasonality_prior_scale': sp,
-                        'holidays_prior_scale': hp
-                    })
-                    if len(param_combinations) >= max_combinations:
-                        break
-                if len(param_combinations) >= max_combinations:
-                    break
-            if len(param_combinations) >= max_combinations:
-                break
-        
-        logger.info(f"Starting cross-validation optimization with {len(param_combinations)} parameter combinations")
-        
-        for i, params in enumerate(param_combinations):
-            try:
-                # Create Prophet model with current parameters
-                model_config = initial_config.copy()
-                model_config.update(params)
-                
-                model = Prophet(
-                    changepoint_prior_scale=params['changepoint_prior_scale'],
-                    seasonality_prior_scale=params['seasonality_prior_scale'],
-                    holidays_prior_scale=params['holidays_prior_scale'],
-                    yearly_seasonality=model_config.get('yearly_seasonality', True),
-                    weekly_seasonality=model_config.get('weekly_seasonality', True),
-                    daily_seasonality=model_config.get('daily_seasonality', False),
-                    seasonality_mode=model_config.get('seasonality_mode', 'additive'),
-                    interval_width=model_config.get('interval_width', 0.8),
-                    mcmc_samples=0  # Disable for speed
-                )
-                
-                # Add holidays if configured
-                if model_config.get('holidays') is not None:
-                    model.add_country_holidays(country_name=model_config.get('holidays_country', 'US'))
-                
-                # Fit model
-                model.fit(prophet_df)
-                
-                # Perform cross-validation
-                df_cv = cross_validation(
-                    model, 
-                    initial=f'{cv_initial} days',
-                    period=f'{cv_period} days',
-                    horizon=f'{cv_horizon} days',
-                    parallel=None  # Disable parallel for stability
-                )
-                
-                # Calculate metrics
-                df_metrics = performance_metrics(df_cv)
-                rmse = df_metrics['rmse'].mean()
-                mape = df_metrics['mape'].mean()
-                
-                cv_results.append({
-                    'params': params,
-                    'rmse': rmse,
-                    'mape': mape,
-                    'mae': df_metrics['mae'].mean(),
-                    'mdape': df_metrics['mdape'].mean() if 'mdape' in df_metrics.columns else 0
-                })
-                
-                # Update best configuration
-                if rmse < best_rmse:
-                    best_rmse = rmse
-                    best_mape = mape
-                    best_config.update(params)
-                
-                logger.debug(f"CV iteration {i+1}/{len(param_combinations)}: RMSE={rmse:.4f}, MAPE={mape:.4f}")
-                
-            except Exception as e:
-                logger.warning(f"CV optimization failed for params {params}: {e}")
-                continue
-        
-        # Calculate optimization metrics
-        initial_rmse = cv_results[0]['rmse'] if cv_results else float('inf')
-        improvement_pct = ((initial_rmse - best_rmse) / initial_rmse * 100) if initial_rmse != float('inf') else 0
-        
-        optimization_metrics = {
-            'initial_rmse': initial_rmse,
-            'optimized_rmse': best_rmse,
-            'initial_mape': cv_results[0]['mape'] if cv_results else float('inf'),
-            'optimized_mape': best_mape,
-            'improvement_pct': improvement_pct,
-            'cv_folds': len(cv_results),
-            'cv_horizon': cv_horizon,
-            'cv_initial': cv_initial
-        }
-        
-        self.cv_results = cv_results
-        self.best_metrics = optimization_metrics
-        
-        logger.info(f"Cross-validation optimization completed: {improvement_pct:.2f}% RMSE improvement")
-        
-        return best_config, optimization_metrics
-    
-    def _apply_performance_optimizations(self, model_config: dict, base_config: dict, 
-                                       data_size: int, date_range_days: int) -> Tuple[dict, dict]:
-        """Apply final performance optimizations"""
-        optimized_config = model_config.copy()
-        optimized_base_config = base_config.copy()
-        
-        # Performance optimizations
-        if data_size > 500:
-            optimized_config['mcmc_samples'] = 0
-        
-        # Training data optimization
-        if data_size > 1000:
-            optimized_base_config['train_size'] = 0.9
-        elif data_size < 100:
-            optimized_base_config['train_size'] = 0.8
-        
-        # Interval width optimization based on data characteristics
-        if data_size > 1000:
-            optimized_config['interval_width'] = 0.95  # More confident with more data
-        else:
-            optimized_config['interval_width'] = 0.8   # Less confident with less data
-        
-        return optimized_config, optimized_base_config
-    
-    def _compare_configs(self, original: dict, optimized: dict) -> Dict[str, tuple]:
-        """Compare two configurations and return changes"""
-        changes = {}
-        for key in set(original.keys()) | set(optimized.keys()):
-            if original.get(key) != optimized.get(key):
-                changes[key] = (original.get(key), optimized.get(key))
-        return changes
-    
-    def get_optimization_summary(self) -> Dict[str, Any]:
-        """Get comprehensive optimization summary"""
-        if not self.tuning_history:
-            return {'status': 'no_optimization_history'}
-        
-        latest = self.tuning_history[-1]
-        
-        summary = {
-            'latest_optimization': {
-                'timestamp': latest['timestamp'],
-                'data_characteristics': {
-                    'size': latest['data_size'],
-                    'date_range_days': latest['date_range_days']
-                },
-                'optimization_metrics': latest.get('optimization_metrics', {}),
-                'cv_enabled': latest.get('cv_enabled', False)
-            },
-            'historical_performance': {
-                'total_optimizations': len(self.tuning_history),
-                'avg_improvement_pct': np.mean([
-                    h.get('optimization_metrics', {}).get('improvement_pct', 0) 
-                    for h in self.tuning_history
-                ]),
-                'best_improvement_pct': max([
-                    h.get('optimization_metrics', {}).get('improvement_pct', 0) 
-                    for h in self.tuning_history
-                ])
-            },
-            'cv_results_summary': self._get_cv_results_summary() if self.cv_results else None
-        };
-        
-        return summary
-    
-    def _get_cv_results_summary(self) -> Dict[str, Any]:
-        """Get summary of cross-validation results"""
-        if not self.cv_results:
-            return None
-        
-        rmse_values = [r['rmse'] for r in self.cv_results]
-        mape_values = [r['mape'] for r in self.cv_results]
-        
-        return {
-            'total_configurations_tested': len(self.cv_results),
-            'rmse_statistics': {
-                'best': min(rmse_values),
-                'worst': max(rmse_values),
-                'mean': np.mean(rmse_values),
-                'std': np.std(rmse_values)
-            },
-            'mape_statistics': {
-                'best': min(mape_values),
-                'worst': max(mape_values),
-                'mean': np.mean(mape_values),
-                'std': np.std(mape_values)
-            },
-            'best_configuration': min(self.cv_results, key=lambda x: x['rmse'])
-        }
-    
-    def get_parameter_sensitivity_analysis(self) -> Dict[str, Any]:
-        """Analyze parameter sensitivity based on CV results"""
-        if not self.cv_results:
-            return {'status': 'no_cv_results_available'}
-        
-        # Group results by parameter values
-        param_analysis = {}
-        
-        for param_name in ['changepoint_prior_scale', 'seasonality_prior_scale', 'holidays_prior_scale']:
-            param_values = {}
-            
-            for result in self.cv_results:
-                param_val = result['params'][param_name]
-                if param_val not in param_values:
-                    param_values[param_val] = []
-                param_values[param_val].append(result['rmse'])
-            
-            # Calculate statistics for each parameter value
-            param_stats = {}
-            for val, rmses in param_values.items():
-                param_stats[val] = {
-                    'mean_rmse': np.mean(rmses),
-                    'std_rmse': np.std(rmses),
-                    'count': len(rmses)
-                }
-            
-            # Find optimal value
-            best_val = min(param_stats.keys(), key=lambda x: param_stats[x]['mean_rmse'])
-            
-            param_analysis[param_name] = {
-                'statistics': param_stats,
-                'optimal_value': best_val,
-                'sensitivity_score': np.std([s['mean_rmse'] for s in param_stats.values()])
-            }
-        
-        return param_analysis
-    
-    def recommend_optimization_strategy(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Recommend optimization strategy based on data characteristics"""
-        data_size = len(df)
-        date_range_days = (df.iloc[-1, 0] - df.iloc[0, 0]).days if len(df) > 1 else 1
-        
-        # Analyze data characteristics
-        target_col = df.columns[1] if len(df.columns) > 1 else df.columns[0]
-        volatility = df[target_col].std() / df[target_col].mean() if df[target_col].mean() != 0 else 0
-        trend_strength = self._calculate_trend_strength(df[target_col])
-        seasonality_strength = self._calculate_seasonality_strength(df[target_col])
-        
-        recommendations = {
-            'data_characteristics': {
-                'size': data_size,
-                'date_range_days': date_range_days,
-                'volatility': volatility,
-                'trend_strength': trend_strength,
-                'seasonality_strength': seasonality_strength
-            },
-            'optimization_strategy': [],
-            'parameter_focus': [],
-            'expected_improvement': 'moderate'
-        }
-        
-        # Strategy recommendations
-        if data_size < 100:
-            recommendations['optimization_strategy'].append('heuristic_only')
-            recommendations['parameter_focus'].append('changepoint_prior_scale')
-            recommendations['expected_improvement'] = 'low'
-        elif data_size >= 100 and date_range_days >= 90:
-            recommendations['optimization_strategy'].append('cross_validation')
-            recommendations['parameter_focus'].extend(['changepoint_prior_scale', 'seasonality_prior_scale'])
-            recommendations['expected_improvement'] = 'high'
-        
-        # Parameter-specific recommendations
-        if volatility > 0.3:
-            recommendations['parameter_focus'].append('changepoint_prior_scale')
-            recommendations['optimization_strategy'].append('volatility_adaptation')
-        
-        if seasonality_strength > 0.5:
-            recommendations['parameter_focus'].append('seasonality_prior_scale')
-            recommendations['optimization_strategy'].append('seasonality_optimization')
-        
-        if trend_strength > 0.5:
-            recommendations['parameter_focus'].append('changepoint_prior_scale')
-            recommendations['optimization_strategy'].append('trend_optimization')
-        
-        return recommendations
-    
-    def _calculate_trend_strength(self, series: pd.Series) -> float:
-        """Calculate trend strength using linear regression"""
-        if len(series) < 10:
-            return 0.0
-        
-        from sklearn.linear_model import LinearRegression
-        from sklearn.metrics import r2_score
-        
-        X = np.arange(len(series)).reshape(-1, 1)
-        y = series.values
-        
-        model = LinearRegression()
-        model.fit(X, y)
-        predictions = model.predict(X)
-        
-        return max(0.0, r2_score(y, predictions))
-    
-    def _calculate_seasonality_strength(self, series: pd.Series, period: int = 7) -> float:
-        """Calculate seasonality strength using autocorrelation"""
-        if len(series) < period * 2:
-            return 0.0
-        
-        # Calculate autocorrelation at seasonal lag
+
+        # Create and configure the Prophet model
+        model = Prophet(
+            changepoint_prior_scale=params['changepoint_prior_scale'],
+            seasonality_prior_scale=params['seasonality_prior_scale'],
+            holidays_prior_scale=params['holidays_prior_scale'],
+            seasonality_mode=params['seasonality_mode'],
+            changepoint_range=params['changepoint_range'],
+            yearly_seasonality=base_config.get('yearly_seasonality', 'auto'),
+            weekly_seasonality=base_config.get('weekly_seasonality', 'auto'),
+            daily_seasonality=base_config.get('daily_seasonality', 'auto'),
+            interval_width=base_config.get('interval_width', 0.95),
+        )
+
+        # Add holidays if specified in base_config
+        if base_config.get('holidays_country'):
+            model.add_country_holidays(country_name=base_config['holidays_country'])
+
+        # Fit the model
+        model.fit(prophet_df)
+
+        # Configure and run cross-validation
+        cv_horizon = pd.to_timedelta(base_config.get('cv_horizon_days', 30), 'D')
+        cv_period = pd.to_timedelta(base_config.get('cv_period_days', 15), 'D')
+        cv_initial = pd.to_timedelta(base_config.get('cv_initial_days', 90), 'D')
+
         try:
-            autocorr = series.autocorr(lag=period)
-            return abs(autocorr) if not np.isnan(autocorr) else 0.0
-        except Exception:
-            return 0.0
-    
-    
-    def optimize_with_bayesian_optimization(self, df: pd.DataFrame, model_config: dict, 
-                                          base_config: dict, n_calls: int = 20) -> Tuple[dict, Dict[str, float]]:
-        """
-        Optimize Prophet parameters using Bayesian optimization (requires scikit-optimize)
-        
-        Args:
-            df: Input DataFrame
-            model_config: Initial model configuration
-            base_config: Base configuration
-            n_calls: Number of optimization calls
-            
-        Returns:
-            Tuple of (optimized_config, optimization_metrics)
-        """
-        try:
-            from skopt import gp_minimize
-            from skopt.space import Real, Categorical
-            from skopt.utils import use_named_args
-            
-            logger.info("Starting Bayesian optimization for Prophet parameters")
-            
-            # Define search space
-            dimensions = [
-                Real(0.001, 0.5, name='changepoint_prior_scale', prior='log-uniform'),
-                Real(0.01, 100.0, name='seasonality_prior_scale', prior='log-uniform'),
-                Real(0.01, 100.0, name='holidays_prior_scale', prior='log-uniform'),
-                Categorical(['additive', 'multiplicative'], name='seasonality_mode')
-            ]
-            
-            # Prepare data
-            prophet_df = df.copy()
-            prophet_df.columns = ['ds', 'y']
-            
-            # Define objective function
-            @use_named_args(dimensions)
-            def objective(**params):
-                try:
-                    from prophet import Prophet
-                    from prophet.diagnostics import cross_validation, performance_metrics
-                    
-                    # Create model with parameters
-                    model = Prophet(
-                        changepoint_prior_scale=params['changepoint_prior_scale'],
-                        seasonality_prior_scale=params['seasonality_prior_scale'],
-                        holidays_prior_scale=params['holidays_prior_scale'],
-                        seasonality_mode=params['seasonality_mode'],
-                        yearly_seasonality=model_config.get('yearly_seasonality', True),
-                        weekly_seasonality=model_config.get('weekly_seasonality', True),
-                        daily_seasonality=model_config.get('daily_seasonality', False),
-                        interval_width=model_config.get('interval_width', 0.8),
-                        mcmc_samples=0
-                    )
-                    
-                    # Fit model
-                    model.fit(prophet_df)
-                    
-                    # Perform cross-validation
-                    cv_horizon = min(30, len(df) // 10)
-                    cv_initial = max(len(df) // 2, 60)
-                    cv_period = max(cv_horizon // 2, 7)
-                    
-                    df_cv = cross_validation(
-                        model,
-                        initial=f'{cv_initial} days',
-                        period=f'{cv_period} days',
-                        horizon=f'{cv_horizon} days',
-                        parallel=None
-                    )
-                    
-                    # Calculate metrics
-                    df_metrics = performance_metrics(df_cv)
-                    rmse = df_metrics['rmse'].mean()
-                    
-                    return rmse  # Minimize RMSE
-                    
-                except Exception as e:
-                    logger.warning(f"Bayesian optimization objective failed: {e}")
-                    return 1e6  # Large penalty for failed evaluations
-            
-            # Run optimization
-            start_time = time.time()
-            result = gp_minimize(
-                func=objective,
-                dimensions=dimensions,
-                n_calls=n_calls,
-                random_state=42,
-                acq_func='EI',  # Expected Improvement
-                n_initial_points=5
+            df_cv = cross_validation(
+                model,
+                initial=f'{cv_initial.days} days',
+                period=f'{cv_period.days} days',
+                horizon=f'{cv_horizon.days} days',
+                parallel="processes",
+                disable_diagnostics=True
             )
-            optimization_time = time.time() - start_time
             
-            # Extract optimal parameters
-            optimal_params = {
-                'changepoint_prior_scale': result.x[0],
-                'seasonality_prior_scale': result.x[1],
-                'holidays_prior_scale': result.x[2],
-                'seasonality_mode': result.x[3]
-            }
-            
-            # Create optimized configuration
-            optimized_config = model_config.copy()
-            optimized_config.update(optimal_params)
-            
-            # Calculate optimization metrics
-            optimization_metrics = {
-                'optimized_rmse': result.fun,
-                'optimization_time': optimization_time,
-                'n_calls': n_calls,
-                'convergence_value': result.func_vals[-1] if result.func_vals else float('inf'),
-                'method': 'bayesian_optimization'
-            }
-            
-            logger.info(f"Bayesian optimization completed in {optimization_time:.2f}s")
-            logger.info(f"Optimal RMSE: {result.fun:.4f}")
-            
-            return optimized_config, optimization_metrics
-            
-        except ImportError:
-            logger.warning("scikit-optimize not available. Install with: pip install scikit-optimize")
-            return model_config, {'error': 'scikit-optimize_not_available'}
+            # Calculate performance metrics
+            df_p = performance_metrics(df_cv, rolling_window=0.1)
+            rmse = df_p['rmse'].mean()
+
         except Exception as e:
-            logger.error(f"Bayesian optimization failed: {e}")
-            return model_config, {'error': str(e)}
-    
-    def get_tuning_recommendations(self, performance_metrics: PerformanceMetrics) -> List[str]:
-        """Generate enhanced tuning recommendations based on performance metrics"""
-        recommendations = []
-        
-        # Execution time recommendations
-        if performance_metrics.execution_time > 30:
-            recommendations.append("Consider reducing forecast_periods for faster execution")
-            recommendations.append("Disable MCMC sampling (mcmc_samples=0)")
-            recommendations.append("Enable parallel processing where possible")
-        
-        # Memory usage recommendations
-        if performance_metrics.memory_usage > 500:
-            recommendations.append("Enable DataFrame optimization")
-            recommendations.append("Consider data sampling for large datasets")
-            recommendations.append("Use data chunking for very large datasets")
-        
-        # Cache performance recommendations
-        cache_hit_ratio = performance_metrics.cache_hits / (performance_metrics.cache_hits + performance_metrics.cache_misses)
-        if cache_hit_ratio < 0.3:
-            recommendations.append("Increase cache TTL for better cache hit ratio")
-            recommendations.append("Consider Redis for distributed caching")
-        
-        # Model-specific recommendations
-        if performance_metrics.data_size > 1000:
-            recommendations.append("Consider using cross-validation optimization")
-            recommendations.append("Enable advanced parameter tuning")
-        elif performance_metrics.data_size < 100:
-            recommendations.append("Use heuristic-based optimization for small datasets")
-            recommendations.append("Consider data augmentation techniques")
-        
-        # Forecast accuracy recommendations
-        if hasattr(performance_metrics, 'forecast_accuracy') and performance_metrics.forecast_accuracy < 0.8:
-            recommendations.append("Enable auto-tuning for better forecast accuracy")
-            recommendations.append("Consider adding external regressors")
-            recommendations.append("Analyze seasonality patterns more thoroughly")
-        
-        return recommendations
+            logger.warning(f"Cross-validation failed for trial {trial.number}: {e}")
+            return float('inf') # Return a large value if CV fails
+
+        return rmse
+
+    # Create and run the Optuna study
+    study = optuna.create_study(direction='minimize')
+    study.optimize(objective, n_trials=n_trials, timeout=timeout)
+
+    # Extract best parameters and build final configuration
+    best_params = study.best_params
+    final_model_config = base_config.copy()
+    final_model_config.update(best_params)
+
+    optimization_results = {
+        'best_value_rmse': study.best_value,
+        'best_params': best_params,
+        'n_trials': len(study.trials),
+    }
+
+    logger.info(f"Optimization finished. Best RMSE: {study.best_value:.4f}")
+    return final_model_config, optimization_results
+
 
 # Factory functions for optimized components
 def create_optimized_forecaster(enable_parallel: bool = True, max_workers: int = None) -> OptimizedProphetForecaster:
@@ -1097,10 +583,6 @@ def create_optimized_forecaster(enable_parallel: bool = True, max_workers: int =
 def create_dataframe_optimizer() -> DataFrameOptimizer:
     """Factory function to create DataFrame optimizer"""
     return DataFrameOptimizer()
-
-def create_performance_tuner() -> PerformanceTuner:
-    """Factory function to create performance tuner"""
-    return PerformanceTuner()
 
 def get_performance_report() -> Dict[str, Any]:
     """Get comprehensive performance report"""
@@ -1201,10 +683,6 @@ def create_optimized_forecaster(enable_parallel: bool = True,
     """Factory function to create an OptimizedProphetForecaster instance"""
     return OptimizedProphetForecaster(enable_parallel=enable_parallel, max_workers=max_workers)
 
-
-def create_performance_tuner() -> PerformanceTuner:
-    """Factory function to create a PerformanceTuner instance"""
-    return PerformanceTuner()
 
 def optimize_prophet_parameters(df: pd.DataFrame, model_config: dict, base_config: dict,
                                optimization_method: str = 'cross_validation',
