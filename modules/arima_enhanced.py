@@ -351,7 +351,7 @@ def create_arima_diagnostics(fitted_model: Any, series: pd.Series) -> None:
                 yaxis_title="Residuals",
                 height=300
             )
-            st.plotly_chart(fig_resid, use_container_width=True)
+            st.plotly_chart(fig_resid, width='stretch')
             
             # Q-Q plot approximation (histogram)
             fig_qq = px.histogram(
@@ -360,7 +360,7 @@ def create_arima_diagnostics(fitted_model: Any, series: pd.Series) -> None:
                 title="Residuals Distribution"
             )
             fig_qq.update_layout(height=300)
-            st.plotly_chart(fig_qq, use_container_width=True)
+            st.plotly_chart(fig_qq, width='stretch')
         
         with col2:
             # ACF plot approximation
@@ -381,7 +381,7 @@ def create_arima_diagnostics(fitted_model: Any, series: pd.Series) -> None:
                 yaxis_title="ACF",
                 height=300
             )
-            st.plotly_chart(fig_acf, use_container_width=True)
+            st.plotly_chart(fig_acf, width='stretch')
             
             # Ljung-Box test
             try:
@@ -503,7 +503,7 @@ def create_arima_forecast_plot(df: pd.DataFrame, fitted_model: Any,
         hovermode='x unified'
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 def perform_arima_backtesting(df: pd.DataFrame, date_col: str, target_col: str,
                              params: Dict[str, Any], train_size: float = 0.8) -> Dict[str, float]:
@@ -599,7 +599,7 @@ def perform_arima_backtesting(df: pd.DataFrame, date_col: str, target_col: str,
             height=400
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         
         return metrics
         
@@ -751,7 +751,7 @@ def run_arima_model(df: pd.DataFrame, date_col: str, target_col: str,
                 'Upper Bound': forecast_conf_int.iloc[:, 1].round(2)
             })
             
-            st.dataframe(forecast_df, use_container_width=True)
+            st.dataframe(forecast_df, width='stretch')
     
     except Exception as e:
         st.error(f"❌ Error in ARIMA forecasting: {str(e)}")

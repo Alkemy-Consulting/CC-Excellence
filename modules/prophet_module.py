@@ -639,7 +639,7 @@ def run_prophet_diagnostics(df: pd.DataFrame, date_col: str, target_col: str,
             
             # Quality Dashboard
             if 'quality_dashboard' in diagnostic_plots:
-                st.plotly_chart(diagnostic_plots['quality_dashboard'], use_container_width=True)
+                st.plotly_chart(diagnostic_plots['quality_dashboard'], width='stretch')
             
             # Create tabs for different diagnostic views
             diagnostic_tabs = st.tabs([
@@ -652,7 +652,7 @@ def run_prophet_diagnostics(df: pd.DataFrame, date_col: str, target_col: str,
             
             with diagnostic_tabs[0]:
                 if 'residual_analysis' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['residual_analysis'], use_container_width=True)
+                    st.plotly_chart(diagnostic_plots['residual_analysis'], width='stretch')
                     
                     # Show residual statistics
                     residual_stats = analysis.get('residual_analysis', {})
@@ -683,7 +683,7 @@ def run_prophet_diagnostics(df: pd.DataFrame, date_col: str, target_col: str,
             
             with diagnostic_tabs[1]:
                 if 'trend_decomposition' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['trend_decomposition'], use_container_width=True)
+                    st.plotly_chart(diagnostic_plots['trend_decomposition'], width='stretch')
                     
                     # Show trend statistics
                     trend_stats = analysis.get('trend_analysis', {})
@@ -713,7 +713,7 @@ def run_prophet_diagnostics(df: pd.DataFrame, date_col: str, target_col: str,
             
             with diagnostic_tabs[2]:
                 if 'seasonality_analysis' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['seasonality_analysis'], use_container_width=True)
+                    st.plotly_chart(diagnostic_plots['seasonality_analysis'], width='stretch')
                     
                     # Show seasonality strength
                     seasonality_stats = analysis.get('seasonality_analysis', {})
@@ -746,7 +746,7 @@ def run_prophet_diagnostics(df: pd.DataFrame, date_col: str, target_col: str,
             
             with diagnostic_tabs[3]:
                 if 'uncertainty_analysis' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['uncertainty_analysis'], use_container_width=True)
+                    st.plotly_chart(diagnostic_plots['uncertainty_analysis'], width='stretch')
                     
                     # Show uncertainty statistics
                     uncertainty_stats = analysis.get('uncertainty_analysis', {})
@@ -776,7 +776,7 @@ def run_prophet_diagnostics(df: pd.DataFrame, date_col: str, target_col: str,
             
             with diagnostic_tabs[4]:
                 if 'forecast_validation' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['forecast_validation'], use_container_width=True)
+                    st.plotly_chart(diagnostic_plots['forecast_validation'], width='stretch')
                     
                     # Show validation statistics
                     coverage_stats = analysis.get('forecast_coverage', {})
@@ -911,7 +911,7 @@ def run_prophet_diagnostics_optimized(df: pd.DataFrame, date_col: str, target_co
             
             with diagnostic_tabs[0]:
                 if 'residual_analysis' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['residual_analysis'], use_container_width=True)
+                    st.plotly_chart(diagnostic_plots['residual_analysis'], width='stretch')
                     
                     # Show residual statistics
                     residual_stats = analysis.get('residual_analysis', {})
@@ -942,7 +942,7 @@ def run_prophet_diagnostics_optimized(df: pd.DataFrame, date_col: str, target_co
             
             with diagnostic_tabs[1]:
                 if 'trend_decomposition' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['trend_decomposition'], use_container_width=True)
+                    st.plotly_chart(diagnostic_plots['trend_decomposition'], width='stretch')
                     
                     # Show trend statistics
                     trend_stats = analysis.get('trend_analysis', {})
@@ -972,7 +972,7 @@ def run_prophet_diagnostics_optimized(df: pd.DataFrame, date_col: str, target_co
             
             with diagnostic_tabs[2]:
                 if 'seasonality_analysis' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['seasonality_analysis'], use_container_width=True)
+                    st.plotly_chart(diagnostic_plots['seasonality_analysis'], width='stretch')
                     
                     # Show seasonality strength
                     seasonality_stats = analysis.get('seasonality_analysis', {})
@@ -1005,7 +1005,7 @@ def run_prophet_diagnostics_optimized(df: pd.DataFrame, date_col: str, target_co
             
             with diagnostic_tabs[3]:
                 if 'uncertainty_analysis' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['uncertainty_analysis'], use_container_width=True)
+                    st.plotly_chart(diagnostic_plots['uncertainty_analysis'], width='stretch')
                     
                     # Show uncertainty statistics
                     uncertainty_stats = analysis.get('uncertainty_analysis', {})
@@ -1035,7 +1035,7 @@ def run_prophet_diagnostics_optimized(df: pd.DataFrame, date_col: str, target_co
             
             with diagnostic_tabs[4]:
                 if 'forecast_validation' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['forecast_validation'], use_container_width=True)
+                    st.plotly_chart(diagnostic_plots['forecast_validation'], width='stretch')
                     
                     # Show validation statistics
                     coverage_stats = analysis.get('forecast_coverage', {})

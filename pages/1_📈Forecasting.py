@@ -89,7 +89,7 @@ with st.sidebar:
             forecast_button = st.button(
                 "🚀 Run Forecast", 
                 type="primary", 
-                use_container_width=True,
+                width='stretch',
                 key="run_forecast_button"
             )
             
@@ -105,7 +105,7 @@ with st.sidebar:
             st.button(
                 "🚀 Run Forecast", 
                 type="primary", 
-                use_container_width=True, 
+                width='stretch', 
                 disabled=True
             )
             st.warning("⚠️ Please load and clean data first")
@@ -234,7 +234,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
             )
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         
         # Add an expandable box with a preview of the historical data table
         with st.expander("🔍 Preview Historical Data Table"):
@@ -428,7 +428,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                     )
                 )
                 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
                 
                 # Decomposition insights
                 col1, col2, col3 = st.columns(3)
@@ -522,7 +522,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                                              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
                                 )
                             )
-                            st.plotly_chart(fig_monthly, use_container_width=True)
+                            st.plotly_chart(fig_monthly, width='stretch')
                         except Exception as e:
                             st.info("📊 Monthly seasonality analysis not available")
                     else:
@@ -584,7 +584,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                                     ticktext=['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
                                 )
                             )
-                            st.plotly_chart(fig_weekly, use_container_width=True)
+                            st.plotly_chart(fig_weekly, width='stretch')
                         except Exception as e:
                             st.info("📊 Weekly seasonality analysis not available")
                     else:
@@ -613,7 +613,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                                 yaxis_title="Average Value",
                                 height=300
                             )
-                            st.plotly_chart(fig_hourly, use_container_width=True)
+                            st.plotly_chart(fig_hourly, width='stretch')
                     except Exception:
                         pass
                 
@@ -637,7 +637,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                         yaxis_title="Frequency",
                         height=300
                     )
-                    st.plotly_chart(fig_hist, use_container_width=True)
+                    st.plotly_chart(fig_hist, width='stretch')
                 
                 with dist_cols[1]:
                     # Box plot for outlier identification
@@ -652,7 +652,7 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                         yaxis_title="Value",
                         height=300
                     )
-                    st.plotly_chart(fig_box, use_container_width=True)
+                    st.plotly_chart(fig_box, width='stretch')
                 
                 # Stationarity Analysis
                 with st.expander("🔍 Stationarity Analysis"):
@@ -843,8 +843,11 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                     st.markdown(f"- **Intervallo di confidenza**: {forecast_config.get('confidence_interval', 0.95):.2f}")
                 
                 # Display model-specific parameters
-                if selected_model in model_configs:
+                if selected_model in model_configs and model_configs[selected_model] is not None:
                     model_config = model_configs[selected_model]
+                    # Additional safety check to ensure model_config is a dictionary
+                    if not isinstance(model_config, dict):
+                        model_config = {}
                     st.markdown(f"**🎛️ Parametri Specifici {selected_model}:**")
                     
                     if selected_model == "Prophet":
@@ -985,8 +988,6 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
             # === DETAILED ANALYSIS SECTIONS ===
             st.markdown("## 📊 **Analisi Dettagliata delle Componenti**")
             
-            # === PERFORMANCE METRICS SECTION ===
-            st.markdown("### 📈 **1. Metriche di Performance del Modello**")
             # === PERFORMANCE METRICS SECTION ===
             st.markdown("### 📈 **1. Metriche di Performance del Modello**")
             
@@ -1589,21 +1590,21 @@ if st.session_state.data_loaded and st.session_state.get('forecast_results_avail
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("🔄 Run Another Forecast", type="secondary", use_container_width=True, key="run_another"):
+        if st.button("🔄 Run Another Forecast", type="secondary", width='stretch', key="run_another"):
             # Clear forecast results flag to return to data analysis view
             if 'forecast_results_available' in st.session_state:
                 del st.session_state.forecast_results_available
             st.rerun()
     
     with col2:
-        if st.button("📊 Back to Data Analysis", type="secondary", use_container_width=True, key="back_to_data"):
+        if st.button("📊 Back to Data Analysis", type="secondary", width='stretch', key="back_to_data"):
             # Clear forecast results flag to return to data analysis view
             if 'forecast_results_available' in st.session_state:
                 del st.session_state.forecast_results_available
             st.rerun()
     
     with col3:
-        if st.button("🆕 Load New Data", type="secondary", use_container_width=True, key="load_new_data"):
+        if st.button("🆕 Load New Data", type="secondary", width='stretch', key="load_new_data"):
             # Clear all session state to start fresh
             for key in ['run_forecast', 'forecast_results_available', 'data_loaded', 'cleaned_data', 'model_configs', 'date_col', 'target_col']:
                 if key in st.session_state:

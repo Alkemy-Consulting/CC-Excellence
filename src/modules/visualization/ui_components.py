@@ -526,7 +526,7 @@ def render_data_preview_section(df: pd.DataFrame, date_col: str, target_col: str
         fig = px.line(df.sort_values(date_col), x=date_col, y=target_col, 
                      title=f"Time Series: {target_col}")
         fig.update_layout(height=300)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     
     return df
 

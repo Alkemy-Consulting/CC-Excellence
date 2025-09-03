@@ -135,7 +135,7 @@ if 'run_button' in locals() and run_button and schedule_df is not None and activ
             text=adherence_results['Adherence (%)'].apply(lambda x: f'{x:.1f}%')
         )
         fig_bar.update_traces(textposition='outside')
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_bar, width='stretch')
 
     with tab2:
         st.markdown("#### Analisi Timeline Individuale")
@@ -174,7 +174,7 @@ if 'run_button' in locals() and run_button and schedule_df is not None and activ
             ))
 
         fig_gantt.update_layout(title=f"Timeline Attività vs. Pianificazione per {selected_agent}", barmode='stack', yaxis_title="", xaxis_title="Ora del giorno")
-        st.plotly_chart(fig_gantt, use_container_width=True)
+        st.plotly_chart(fig_gantt, width='stretch')
 
     with tab3:
         st.markdown("#### Dati di Aderenza Dettagliati")

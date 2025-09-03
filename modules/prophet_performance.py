@@ -21,8 +21,15 @@ import multiprocessing as mp
 from dataclasses import dataclass, asdict
 from pathlib import Path
 import json
-import redis
 from contextlib import contextmanager
+
+# Optional redis import for advanced caching
+try:
+    import redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    redis = None
+    REDIS_AVAILABLE = False
 import sklearn.metrics
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
@@ -187,7 +194,7 @@ class AdvancedCache:
         self.ttl_seconds = ttl_seconds
         self.use_redis = use_redis
         
-        if use_redis:
+        if use_redis and REDIS_AVAILABLE:
             try:
                 self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
                 self.redis_client.ping()
@@ -196,6 +203,10 @@ class AdvancedCache:
                 logger.warning(f"Redis connection failed, falling back to memory cache: {e}")
                 self.use_redis = False
                 self.redis_client = None
+        elif use_redis and not REDIS_AVAILABLE:
+            logger.warning("Redis not available, falling back to memory cache")
+            self.use_redis = False
+            self.redis_client = None
         
         if not use_redis:
             self.memory_cache = {}

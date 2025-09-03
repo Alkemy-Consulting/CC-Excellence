@@ -69,7 +69,7 @@ def run_holt_winters_model(df: pd.DataFrame, date_col: str, target_col: str, hor
             fig.add_trace(go.Scatter(x=df[date_col], y=df[target_col], mode='lines', name='Storico', line=dict(color='#1f77b4')))
             fig.add_trace(go.Scatter(x=fitted.index, y=fitted, mode='lines', name='Fitted', line=dict(color='#ff7f0e', dash='dash')))
             fig.add_trace(go.Scatter(x=forecast.index, y=forecast, mode='lines', name='Forecast', line=dict(color='#d62728')))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
             # Bottone di download
             if st.button("📥 Scarica Forecast in Excel", key="holtwinters_download_btn"):

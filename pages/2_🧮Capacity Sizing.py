@@ -408,7 +408,7 @@ with st.sidebar:
                     if st.session_state.df is not None:
                         st.success("✅ Dataset caricato con successo")
                         with st.expander("👀 Anteprima dati"):
-                            st.dataframe(st.session_state.df.head(), use_container_width=True)
+                            st.dataframe(st.session_state.df.head(), width='stretch')
     
     # 2. Orari di apertura
     with st.expander("🕒 Orari di apertura settimanali"):
@@ -606,7 +606,7 @@ with st.sidebar:
     
     # 8. Avvio
     st.markdown("---")
-    run_calculation = st.button("🚀 Lancia il calcolo", type="primary", use_container_width=True)
+    run_calculation = st.button("🚀 Lancia il calcolo", type="primary", width='stretch')
 
 # --- Main App - Output Section ---
 if run_calculation:
@@ -821,7 +821,7 @@ if run_calculation:
                 height=400
             )
             
-            st.plotly_chart(fig_daily, use_container_width=True)
+            st.plotly_chart(fig_daily, width='stretch')
         
         with col2:
             st.markdown("**Distribuzione Oraria**")
@@ -834,7 +834,7 @@ if run_calculation:
                 title="Fabbisogno Medio per Fascia Oraria",
                 markers=True
             )
-            st.plotly_chart(fig_hourly, use_container_width=True)
+            st.plotly_chart(fig_hourly, width='stretch')
         
         # Heatmap Fabbisogno Operatori
         st.markdown("**Mappa di Calore - Fabbisogno Settimanale**")
@@ -861,7 +861,7 @@ if run_calculation:
                 xaxis_title="Giorno della Settimana",
                 yaxis_title="Fascia Oraria"
             )
-            st.plotly_chart(fig_heatmap, use_container_width=True)
+            st.plotly_chart(fig_heatmap, width='stretch')
         except Exception as e:
             st.warning(f"Impossibile generare la heatmap fabbisogno: {str(e)}")
         
@@ -913,7 +913,7 @@ if run_calculation:
                     font=dict(size=10)
                 )
                 
-                st.plotly_chart(fig_heatmap_sl, use_container_width=True)
+                st.plotly_chart(fig_heatmap_sl, width='stretch')
                 
                 # Aggiungi legenda interpretativa migliorata
                 st.markdown("**📊 Interpretazione Service Level:**")
@@ -970,7 +970,7 @@ if run_calculation:
         
         st.dataframe(
             format_planning_table(results_df[display_columns]),
-            use_container_width=True,
+            width='stretch',
             height=600
         )
     
@@ -985,7 +985,7 @@ if run_calculation:
                 'Costo Stimato (€)': '€{:.2f}'
             })
         
-        st.dataframe(format_results_table(results_df), use_container_width=True)
+        st.dataframe(format_results_table(results_df), width='stretch')
         
         # Download dei risultati
         csv_data = convert_df_to_csv(results_df)
@@ -1054,7 +1054,7 @@ if run_calculation:
                 st.markdown("**📋 Professional Erlang Sensitivity Table**")
                 st.markdown(f"*Parametri: {test_arrival_rate} chiamate/ora, AHT {aht}s, SL target {service_level_target:.0%}, Answer time {answer_time_target}s*")
                 
-                st.dataframe(format_sensitivity_table(sensitivity_df), use_container_width=True, hide_index=True)
+                st.dataframe(format_sensitivity_table(sensitivity_df), width='stretch', hide_index=True)
                 
                 # Evidenzia la configurazione ottimale
                 optimal_rows = sensitivity_df[sensitivity_df['Target Met'] == True]
@@ -1086,7 +1086,7 @@ if run_calculation:
                         yaxis_title="Service Level (%)",
                         height=400
                     )
-                    st.plotly_chart(fig_sl, use_container_width=True)
+                    st.plotly_chart(fig_sl, width='stretch')
                 
                 with col2:
                     # Occupancy Chart
@@ -1107,7 +1107,7 @@ if run_calculation:
                         yaxis_title="Occupancy (%)",
                         height=400
                     )
-                    st.plotly_chart(fig_occ, use_container_width=True)
+                    st.plotly_chart(fig_occ, width='stretch')
                 
                 # Grafico combinato ASA e % Answered Immediately
                 st.markdown("**⏱️ Tempi di Risposta**")
@@ -1139,7 +1139,7 @@ if run_calculation:
                     height=400
                 )
                 
-                st.plotly_chart(fig_response, use_container_width=True)
+                st.plotly_chart(fig_response, width='stretch')
                 
                 # Download sensitivity table
                 csv_sensitivity = convert_df_to_csv(sensitivity_df)
@@ -1236,7 +1236,7 @@ if run_calculation:
                 height=500
             )
             
-            st.plotly_chart(fig_multi, use_container_width=True)
+            st.plotly_chart(fig_multi, width='stretch')
             
             # Grafico differenze percentuali
             col1, col2 = st.columns(2)
@@ -1260,7 +1260,7 @@ if run_calculation:
                     height=400
                 )
                 
-                st.plotly_chart(fig_whatif_impact, use_container_width=True)
+                st.plotly_chart(fig_whatif_impact, width='stretch')
             
             with col2:
                 st.markdown("**⚠️ Impatto Stress Test (%)**")
@@ -1306,7 +1306,7 @@ if run_calculation:
                         height=400
                     )
                     
-                    st.plotly_chart(fig_whatif, use_container_width=True)
+                    st.plotly_chart(fig_whatif, width='stretch')
                 
                 with col2:
                     # Grafico Delta
@@ -1327,7 +1327,7 @@ if run_calculation:
                         height=400
                     )
                     
-                    st.plotly_chart(fig_delta, use_container_width=True)
+                    st.plotly_chart(fig_delta, width='stretch')
         
         elif whatif_results is not None:
             # Solo What-If scenario attivo
@@ -1416,7 +1416,7 @@ if run_calculation:
                         height=400
                     )
                     
-                    st.plotly_chart(fig_stress, use_container_width=True)
+                    st.plotly_chart(fig_stress, width='stretch')
                 
                 with col2:
                     # Grafico Extra Capacity richiesta
@@ -1437,7 +1437,7 @@ if run_calculation:
                         height=400
                     )
                     
-                    st.plotly_chart(fig_extra, use_container_width=True)
+                    st.plotly_chart(fig_extra, width='stretch')
                 
                 # Grafico waterfall migliorato per analisi impatto
                 st.markdown("**📊 Analisi Impatto Fattori di Stress**")
@@ -1479,7 +1479,7 @@ if run_calculation:
                         showlegend=False
                     )
                     
-                    st.plotly_chart(fig_waterfall, use_container_width=True)
+                    st.plotly_chart(fig_waterfall, width='stretch')
                     
                     # Tabella di riepilogo impatti
                     st.markdown("**📋 Riepilogo Impatti**")
@@ -1494,7 +1494,7 @@ if run_calculation:
                                     f"+{(final_total - baseline_total)/baseline_total*100:.1f}%"]
                     })
                     
-                    st.dataframe(impact_df, use_container_width=True, hide_index=True)
+                    st.dataframe(impact_df, width='stretch', hide_index=True)
         
         else:
             # Nessuno scenario attivo
@@ -1526,7 +1526,7 @@ else:
     # Mostra anteprima dati se disponibili
     if st.session_state.df is not None:
         st.markdown("#### 👀 Anteprima Dataset")
-        st.dataframe(st.session_state.df.head(10), use_container_width=True)
+        st.dataframe(st.session_state.df.head(10), width='stretch')
         
         # Statistiche dataset
         col1, col2, col3, col4 = st.columns(4)

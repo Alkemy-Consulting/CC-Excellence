@@ -96,7 +96,7 @@ def run_exploratory_analysis(df, date_col, target_col, freq, selected_metrics,
             yaxis_title="Valore",
             height=400
         )
-        st.plotly_chart(fig_ts, use_container_width=True)
+        st.plotly_chart(fig_ts, width='stretch')
 
         # Analisi della distribuzione
         st.markdown("#### Analisi della Distribuzione")
@@ -118,7 +118,7 @@ def run_exploratory_analysis(df, date_col, target_col, freq, selected_metrics,
                 yaxis_title="Frequenza",
                 height=300
             )
-            st.plotly_chart(fig_hist, use_container_width=True)
+            st.plotly_chart(fig_hist, width='stretch')
         
         with col2:
             # Box plot per identificare outlier
@@ -133,7 +133,7 @@ def run_exploratory_analysis(df, date_col, target_col, freq, selected_metrics,
                 yaxis_title="Valore",
                 height=300
             )
-            st.plotly_chart(fig_box, use_container_width=True)
+            st.plotly_chart(fig_box, width='stretch')
 
         # Analisi stagionalità
         st.markdown("#### Analisi della Stagionalità")
@@ -183,7 +183,7 @@ def run_exploratory_analysis(df, date_col, target_col, freq, selected_metrics,
                     xaxis=dict(tickmode='linear', tick0=1, dtick=1),
                     height=400
                 )
-                st.plotly_chart(fig_seasonal, use_container_width=True)
+                st.plotly_chart(fig_seasonal, width='stretch')
             else:
                 st.info("Non ci sono dati sufficienti per l'analisi stagionale dettagliata.")
         except Exception as e:
@@ -198,7 +198,7 @@ def run_exploratory_analysis(df, date_col, target_col, freq, selected_metrics,
         else:
             try:
                 decomp = seasonal_decompose(series, model='additive', period=seasonal_period)
-                st.plotly_chart(plot_decomposition(decomp, "Decomposizione Additiva"), use_container_width=True)
+                st.plotly_chart(plot_decomposition(decomp, "Decomposizione Additiva"), width='stretch')
             except Exception as e:
                 st.error(f"Errore durante la decomposizione STL: {e}")
 
@@ -342,7 +342,7 @@ def run_exploratory_analysis(df, date_col, target_col, freq, selected_metrics,
             metrics_df_clean = metrics_df[numeric_cols].round(3)
             
             st.write("**Tabella delle Metriche per Modello:**")
-            st.dataframe(metrics_df_clean, use_container_width=True)
+            st.dataframe(metrics_df_clean, width='stretch')
             
             # Trova il modello migliore per ogni metrica
             st.write("**Modello Migliore per Metrica:**")

@@ -268,7 +268,7 @@ def display_forecast_results(model_name: str, forecast_df: pd.DataFrame, metrics
         
         # Display forecast plot if available
         if 'forecast_plot' in plots:
-            st.plotly_chart(plots['forecast_plot'], use_container_width=True)
+            st.plotly_chart(plots['forecast_plot'], width='stretch')
         
         # Add expandable box with all forecast parameters and technical results
         with st.expander("🔍 **Dettagli Tecnici e Parametri del Modello**", expanded=False):
@@ -286,7 +286,7 @@ def display_forecast_results(model_name: str, forecast_df: pd.DataFrame, metrics
             
             if metrics_data:
                 metrics_df = pd.DataFrame(metrics_data)
-                st.dataframe(metrics_df, use_container_width=True)
+                st.dataframe(metrics_df, width='stretch')
             
             st.markdown("### ⚙️ Parametri del Modello")
             
@@ -333,7 +333,7 @@ def display_forecast_results(model_name: str, forecast_df: pd.DataFrame, metrics
         # Display additional plots if available
         for plot_name, plot_fig in plots.items():
             if plot_name != 'forecast_plot' and plot_fig is not None:
-                st.plotly_chart(plot_fig, use_container_width=True)
+                st.plotly_chart(plot_fig, width='stretch')
         
         # Display forecast data table
         if not forecast_df.empty:

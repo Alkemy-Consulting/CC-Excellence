@@ -60,7 +60,7 @@ def run_sarima_model(df: pd.DataFrame, date_col: str, target_col: str, horizon: 
             fig.add_trace(go.Scatter(x=forecast_mean.index, y=forecast_mean, mode='lines', name='Forecast', line=dict(color='#d62728')))
             fig.add_trace(go.Scatter(x=conf_int.index, y=conf_int.iloc[:, 0], fill='tonexty', mode='none', fillcolor='rgba(214,39,40,0.2)', showlegend=False))
             fig.add_trace(go.Scatter(x=conf_int.index, y=conf_int.iloc[:, 1], fill='tonexty', mode='none', fillcolor='rgba(214,39,40,0.2)', showlegend=False))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
             # Bottone di download
             if st.button("📥 Scarica Forecast in Excel", key="sarima_download_btn"):

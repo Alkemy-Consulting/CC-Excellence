@@ -342,14 +342,14 @@ if 'run_button' in locals() and run_button and req_df is not None:
             fig_coverage.add_trace(go.Scatter(x=coverage_df['OraCompleta'], y=coverage_df['Fabbisogno'], name='Fabbisogno', mode='lines+markers', line=dict(shape='spline', color='#ff7f0e')))
             fig_coverage.add_trace(go.Bar(x=coverage_df['OraCompleta'], y=coverage_df['Pianificato'], name='Pianificato', marker_color='#1f77b4'))
             fig_coverage.update_layout(title='Confronto Fabbisogno vs. Copertura Pianificata', xaxis_title='Giorno e Ora', yaxis_title='Numero di Operatori', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-            st.plotly_chart(fig_coverage, use_container_width=True)
+            st.plotly_chart(fig_coverage, width='stretch')
 
             st.markdown("#### Deficit e Surplus")
             st.info("Questo grafico mostra dove la pianificazione ha un surplus di personale (barre verdi) o un deficit (barre rosse).")
             colors = ['#2ca02c' if x >= 0 else '#d62728' for x in coverage_df['Deficit/Surplus']]
             fig_surplus = go.Figure(go.Bar(x=coverage_df['OraCompleta'], y=coverage_df['Deficit/Surplus'], marker_color=colors))
             fig_surplus.update_layout(title='Deficit/Surplus di Copertura per Ora', xaxis_title='Giorno e Ora', yaxis_title='Operatori in Eccesso/Mancanti')
-            st.plotly_chart(fig_surplus, use_container_width=True)
+            st.plotly_chart(fig_surplus, width='stretch')
 
         with tab2:
             st.markdown("#### Gantt Chart della Pianificazione")
@@ -361,7 +361,7 @@ if 'run_button' in locals() and run_button and req_df is not None:
                     labels={"Agent": "Agente"}, title="Pianificazione Turni Settimanale per Agente"
                 )
                 fig_gantt.update_yaxes(autorange="reversed")
-                st.plotly_chart(fig_gantt, use_container_width=True)
+                st.plotly_chart(fig_gantt, width='stretch')
             else:
                 st.warning("Nessun turno assegnato. Il Gantt non può essere visualizzato.")
 
