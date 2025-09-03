@@ -1,5 +1,22 @@
 # CC-Excellence: Enhanced Contact Center Forecasting Tool
 
+## 📋 Table of Contents
+
+- [🎯 Overview](#-overview)
+- [✨ Key Features](#-key-features)
+- [🏗️ Architecture](#️-architecture)
+- [🚀 Getting Started](#-getting-started)
+- [📋 Usage Guide](#-usage-guide)
+- [🧪 Testing](#-testing)
+- [🔧 Configuration](#-configuration)
+- [📊 Performance Metrics](#-performance-metrics)
+- [🔄 Workflow Integration](#-workflow-integration)
+- [📈 Advanced Features](#-advanced-features)
+- [🚀 Future Enhancements](#-future-enhancements)
+- [🤝 Contributing](#-contributing)
+- [📝 License](#-license)
+- [📞 Support](#-support)
+
 ## 🎯 Overview
 
 CC-Excellence is a comprehensive, modular Streamlit application designed for advanced contact center forecasting. The tool provides state-of-the-art time series forecasting capabilities with a modern, intuitive user interface and robust backend processing.

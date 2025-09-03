@@ -99,5 +99,10 @@ prophet_cache/
 performance_*.log
 diagnostics_*.json
 
+# GPG configuration (personal/sensitive)
+gpg-key.conf
+*.gpg
+*.asc
+
 # AI rules
 .cursor/

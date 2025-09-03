@@ -9,8 +9,9 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Add project root to path
-sys.path.append('/workspaces/CC-Excellence')
-sys.path.append('/workspaces/CC-Excellence/modules')
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(project_root)
+sys.path.append(os.path.join(project_root, 'modules'))
 
 def main():
     print("🚀 CC-Excellence Quick Validation Test")
