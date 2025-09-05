@@ -1,7 +1,5 @@
-"""
-GitHub Actions Workflow for CC-Excellence
-Enterprise CI/CD pipeline with comprehensive testing
-"""
+# GitHub Actions Workflow for CC-Excellence
+# Enterprise CI/CD pipeline with comprehensive testing
 
 name: CC-Excellence Enterprise Testing
 
