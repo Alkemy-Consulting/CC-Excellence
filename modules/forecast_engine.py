@@ -8,12 +8,16 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import warnings
+import logging
 warnings.filterwarnings('ignore')
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 from .prophet_module import run_prophet_forecast, run_prophet_diagnostics
 from .arima_enhanced import run_arima_forecast
 from src.modules.forecasting.sarima_enhanced import run_sarima_forecast  
-from .holtwinters_enhanced import run_holtwinters_forecast
+from .holtwinters_module import run_holtwinters_forecast
 
 def run_enhanced_forecast(df: pd.DataFrame, date_col: str, target_col: str,
                          model_name: str, model_config: Dict[str, Any], 
@@ -43,7 +47,14 @@ def run_enhanced_forecast(df: pd.DataFrame, date_col: str, target_col: str,
                 raise ValueError(f"Insufficient data for seasonal model: {len(df)} points, need at least {seasonal_periods * 2}")
         
         if model_name == "Prophet":
-            return run_prophet_forecast(df, date_col, target_col, model_config, base_config)
+            # Convert base_config to forecast_config format for Prophet
+            forecast_config = {
+                'horizon': base_config.get('forecast_periods', 30),
+                'confidence_level': base_config.get('confidence_interval', 0.95),
+                'train_size': base_config.get('train_size', 0.8),
+                'enable_cross_validation': False
+            }
+            return run_prophet_forecast(df, date_col, target_col, model_config, forecast_config)
         elif model_name == "ARIMA":
             return run_arima_forecast(df, date_col, target_col, model_config, base_config)
         elif model_name == "SARIMA":
@@ -268,7 +279,7 @@ def display_forecast_results(model_name: str, forecast_df: pd.DataFrame, metrics
         
         # Display forecast plot if available
         if 'forecast_plot' in plots:
-            st.plotly_chart(plots['forecast_plot'], width='stretch')
+            st.plotly_chart(plots['forecast_plot'], use_container_width=True)
         
         # Add expandable box with all forecast parameters and technical results
         with st.expander("🔍 **Dettagli Tecnici e Parametri del Modello**", expanded=False):
@@ -286,7 +297,7 @@ def display_forecast_results(model_name: str, forecast_df: pd.DataFrame, metrics
             
             if metrics_data:
                 metrics_df = pd.DataFrame(metrics_data)
-                st.dataframe(metrics_df, width='stretch')
+                st.dataframe(metrics_df, use_container_width=True)
             
             st.markdown("### ⚙️ Parametri del Modello")
             
@@ -332,8 +343,32 @@ def display_forecast_results(model_name: str, forecast_df: pd.DataFrame, metrics
         
         # Display additional plots if available
         for plot_name, plot_fig in plots.items():
-            if plot_name != 'forecast_plot' and plot_fig is not None:
-                st.plotly_chart(plot_fig, width='stretch')
+            if plot_name == 'fitting_log':
+                # Special handling for Holt-Winters fitting log
+                if 'holt' in model_name.lower() or 'winters' in model_name.lower():
+                    from modules.holtwinters_module import create_fitting_log_dropdown
+                    create_fitting_log_dropdown(plot_fig)
+            elif plot_name != 'forecast_plot' and plot_fig is not None:
+                try:
+                    # Handle different plot types
+                    if hasattr(plot_fig, 'show'):  # Plotly figure
+                        st.plotly_chart(plot_fig, use_container_width=True)
+                    elif hasattr(plot_fig, 'savefig'):  # Matplotlib figure
+                        # Special handling for Prophet components plot
+                        if plot_name == 'components_plot':
+                            st.subheader("📊 Prophet Components Analysis")
+                            st.pyplot(plot_fig, clear_figure=True)
+                        else:
+                            st.pyplot(plot_fig, clear_figure=True)
+                    else:
+                        logger.warning(f"Unknown plot type for {plot_name}: {type(plot_fig)}")
+                except Exception as plot_error:
+                    logger.error(f"Error displaying plot {plot_name}: {plot_error}")
+                    # For Prophet components, show a more specific message
+                    if plot_name == 'components_plot':
+                        st.info("📊 Prophet Components plot not available - this is optional and doesn't affect forecast quality")
+                    else:
+                        st.warning(f"Could not display {plot_name} plot")
         
         # Display forecast data table
         if not forecast_df.empty:

@@ -64,7 +64,7 @@ def test_all_model_imports():
     
     # Test Holt-Winters
     try:
-        from modules.holtwinters_enhanced import run_holtwinters_forecast
+        from modules.holtwinters_module import run_holtwinters_forecast
         print("✅ Holt-Winters enhanced imported")
         success_count += 1
     except Exception as e:

@@ -606,7 +606,7 @@ with st.sidebar:
     
     # 8. Avvio
     st.markdown("---")
-    run_calculation = st.button("🚀 Lancia il calcolo", type="primary", width='stretch')
+    run_calculation = st.button("🚀 Lancia il calcolo", type="primary")
 
 # --- Main App - Output Section ---
 if run_calculation:

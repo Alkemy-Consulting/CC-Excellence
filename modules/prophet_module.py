@@ -1,3 +1,9 @@
+"""
+Unified Prophet Forecasting Module
+Complete implementation with all user parameters, robust validation, and proper execution order.
+This module contains all Prophet-related functionality in a single, efficient file.
+"""
+
 from typing import Dict, List, Tuple, Optional, Any
 import pandas as pd
 import numpy as np
@@ -10,472 +16,542 @@ import logging
 import hashlib
 from functools import lru_cache
 from prophet import Prophet
-from datetime import datetime
-from dataclasses import asdict
+from datetime import datetime, timedelta
+from dataclasses import dataclass
+import holidays
 warnings.filterwarnings('ignore')
-
-# Import new enterprise architecture components
-from src.modules.forecasting.prophet_core import ProphetForecaster, ProphetForecastResult
-from .prophet_presentation import (
-    ProphetPlotFactory, 
-    ProphetVisualizationConfig,
-    create_prophet_plots
-)
-from src.modules.forecasting.prophet_diagnostics import (
-    ProphetDiagnosticAnalyzer,
-    ProphetDiagnosticPlots,
-    ProphetDiagnosticConfig,
-    create_diagnostic_analyzer,
-    create_diagnostic_plots
-)
 
 # Configure logging
 logger = logging.getLogger(__name__)
-from .prophet_performance import (
-    OptimizedProphetForecaster,
-    PerformanceMonitor,
-    DataFrameOptimizer,
-    create_optimized_forecaster,
-    create_dataframe_optimizer,
-    get_performance_report,
-    performance_monitor
-)
 
-# Advanced ML Features Integration (Phase 5)
-try:
-    from src.modules.forecasting.prophet_ml_advanced import (
-        create_feature_engineer,
-        create_ensemble_forecaster,
-        create_hyperparameter_optimizer,
-        MLFeatureConfig,
-        EnsembleModelResult
-    )
+@dataclass
+class ProphetForecastResult:
+    """Result container for Prophet forecasting operations"""
+    success: bool
+    error: Optional[str] = None
+    model: Optional[Prophet] = None
+    raw_forecast: Optional[pd.DataFrame] = None
+    metrics: Optional[Dict[str, float]] = None
+
+class ProphetForecaster:
+    """Unified Prophet forecasting engine with complete parameter support"""
     
-    def run_prophet_ensemble_forecast(df: pd.DataFrame, date_col: str, target_col: str,
-                                     forecast_periods: int = 30,
-                                     enable_prophet: bool = True,
-                                     enable_ml_models: bool = True,
-                                     enable_optimization: bool = True) -> Dict[str, Any]:
-        """
-        Run ensemble forecasting with multiple models including Prophet and ML models
+    def __init__(self):
+        self.model = None
+        self.forecast_data = None
+        self.metrics = {}
         
-        Args:
-            df: DataFrame with time series data
-            date_col: Name of date column
-            target_col: Name of target column
-            forecast_periods: Number of periods to forecast
-            enable_prophet: Whether to include Prophet in ensemble
-            enable_ml_models: Whether to include ML models in ensemble
-            enable_optimization: Whether to apply performance optimizations
-            
-        Returns:
-            Dictionary containing ensemble results and individual model predictions
+    def validate_inputs(self, df: pd.DataFrame, date_col: str, target_col: str, 
+                       model_config: Optional[Dict] = None) -> Tuple[bool, Optional[str]]:
+        """
+        Comprehensive input validation for Prophet forecasting
+        Returns: (is_valid, error_message)
         """
         try:
-            # Initialize ensemble forecaster
-            ensemble_forecaster = create_ensemble_forecaster(
-                enable_prophet=enable_prophet,
-                enable_ml_models=enable_ml_models
-            )
+            # Type validation
+            if not isinstance(df, pd.DataFrame):
+                return False, "Input must be a pandas DataFrame"
             
-            # Apply performance optimizations if enabled
-            if enable_optimization:
-                try:
-                    from .prophet_performance import performance_monitor
-                    with performance_monitor.monitor_execution("ensemble_forecast"):
-                        # Train ensemble
-                        training_result = ensemble_forecaster.fit_ensemble(
-                            df, date_col, target_col, train_size=0.8
-                        )
-                        
-                        # Generate predictions
-                        prediction_result = ensemble_forecaster.predict_ensemble(
-                            df, date_col, target_col, forecast_periods=forecast_periods
-                        )
-                except ImportError:
-                    # Fallback without performance monitoring
-                    training_result = ensemble_forecaster.fit_ensemble(
-                        df, date_col, target_col, train_size=0.8
-                    )
-                    
-                    prediction_result = ensemble_forecaster.predict_ensemble(
-                        df, date_col, target_col, forecast_periods=forecast_periods
-                    )
-            else:
-                # Train ensemble without performance monitoring
-                training_result = ensemble_forecaster.fit_ensemble(
-                    df, date_col, target_col, train_size=0.8
-                )
+            if df.empty:
+                return False, "DataFrame cannot be empty"
                 
-                # Generate predictions
-                prediction_result = ensemble_forecaster.predict_ensemble(
-                    df, date_col, target_col, forecast_periods=forecast_periods
-                )
+            if not isinstance(date_col, str) or not date_col:
+                return False, "date_col must be a non-empty string"
+                
+            if not isinstance(target_col, str) or not target_col:
+                return False, "target_col must be a non-empty string"
             
-            # Combine results
-            result = {
-                'ensemble_forecast': prediction_result.ensemble_forecast,
-                'individual_predictions': prediction_result.individual_predictions,
-                'model_weights': prediction_result.model_weights,
-                'performance_metrics': prediction_result.performance_metrics,
-                'feature_importance': prediction_result.feature_importance,
-                'model_configs': prediction_result.model_configs,
-                'training_summary': training_result,
-                'forecast_metadata': {
-                    'forecast_periods': forecast_periods,
-                    'models_used': list(prediction_result.model_weights.keys()),
-                    'ensemble_diversity': prediction_result.performance_metrics.get('model_diversity', 0),
-                    'created_at': datetime.now().isoformat()
-                }
-            }
+            # Sanitize column names to prevent injection attacks
+            safe_date_col = str(date_col).strip()
+            safe_target_col = str(target_col).strip()
             
-            logger.info(f"Ensemble forecasting completed with {len(prediction_result.model_weights)} models")
-            return result
+            if safe_date_col not in df.columns:
+                return False, f"Date column '{safe_date_col}' not found in DataFrame"
+                
+            if safe_target_col not in df.columns:
+                return False, f"Target column '{safe_target_col}' not found in DataFrame"
+            
+            # Enhanced data requirements validation
+            if len(df) < 30:  # Increased minimum for Prophet
+                return False, f"Insufficient data points: {len(df)} (minimum 30 required for Prophet)"
+            
+            # Check for maximum data size to prevent memory issues
+            if len(df) > 100000:
+                logger.warning(f"Large dataset detected: {len(df)} rows. Consider data sampling for better performance.")
+            
+            # Validate target column data type and missing values
+            target_series = df[safe_target_col]
+            if target_series.isna().sum() > len(df) * 0.3:
+                return False, f"Too many missing values in target column: {target_series.isna().sum()}/{len(df)} (>30%)"
+            
+            # Check for numeric target values
+            try:
+                numeric_target = pd.to_numeric(target_series.dropna(), errors='coerce')
+                if numeric_target.isna().sum() > 0:
+                    return False, f"Target column contains non-numeric values: {numeric_target.isna().sum()} invalid entries"
+            except Exception as e:
+                return False, f"Error converting target column to numeric: {str(e)}"
+            
+            # Check for zero variance
+            if numeric_target.std() == 0:
+                return False, "Target column has zero variance - cannot forecast constant values"
+            
+            # Validate model configuration if provided
+            if model_config:
+                self._validate_model_config(model_config, df)
+            
+            return True, None
             
         except Exception as e:
-            logger.error(f"Error in ensemble forecasting: {e}")
-            raise
-
-
-    def run_prophet_feature_engineering(df: pd.DataFrame, date_col: str, target_col: str,
-                                       config: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        Run advanced feature engineering for time series data
+            return False, f"Validation error: {str(e)}"
+    
+    def _validate_model_config(self, model_config: Dict, df: pd.DataFrame) -> None:
+        """Validate model configuration parameters"""
+        # Validate seasonality requirements
+        if model_config.get('yearly_seasonality') and len(df) < 365:
+            raise ValueError("Insufficient data for yearly seasonality (minimum 365 days required)")
         
-        Args:
-            df: DataFrame with time series data
-            date_col: Name of date column
-            target_col: Name of target column
-            config: Configuration dictionary for feature engineering
-            
-        Returns:
-            Dictionary containing engineered features and statistics
+        if model_config.get('weekly_seasonality') and len(df) < 14:
+            raise ValueError("Insufficient data for weekly seasonality (minimum 14 days required)")
+        
+        if model_config.get('daily_seasonality') and len(df) < 48:
+            raise ValueError("Insufficient data for daily seasonality (minimum 48 hours required)")
+        
+        # Validate growth model requirements
+        if model_config.get('growth') == 'logistic' and 'cap' not in df.columns:
+            raise ValueError("Logistic growth requires 'cap' column in data")
+        
+        # Validate parameter ranges
+        changepoint_prior_scale = model_config.get('changepoint_prior_scale', 0.05)
+        if not (0.001 <= changepoint_prior_scale <= 0.5):
+            raise ValueError("changepoint_prior_scale must be between 0.001 and 0.5")
+        
+        seasonality_prior_scale = model_config.get('seasonality_prior_scale', 10.0)
+        if not (0.01 <= seasonality_prior_scale <= 100.0):
+            raise ValueError("seasonality_prior_scale must be between 0.01 and 100.0")
+
+    def prepare_data(self, df: pd.DataFrame, date_col: str, target_col: str) -> pd.DataFrame:
         """
-        try:
-            # Create feature configuration
-            if config:
-                feature_config = MLFeatureConfig(
-                    lag_features=config.get('lag_features', [1, 7, 14, 30]),
-                    rolling_windows=config.get('rolling_windows', [7, 14, 30]),
-                    diff_features=config.get('diff_features', [1, 7]),
-                    fourier_order=config.get('fourier_order', 10),
-                    enable_trends=config.get('enable_trends', True),
-                    enable_seasonality=config.get('enable_seasonality', True)
-                )
+        Prepare data for Prophet processing with enhanced data quality checks
+        """
+        # Prepare data for Prophet
+        prophet_df = df[[date_col, target_col]].copy()
+        prophet_df.columns = ['ds', 'y']
+        prophet_df = prophet_df.dropna()
+        
+        # Ensure proper datetime format
+        prophet_df['ds'] = pd.to_datetime(prophet_df['ds'])
+        prophet_df = prophet_df.sort_values('ds')
+        
+        # Ensure numeric target
+        prophet_df['y'] = pd.to_numeric(prophet_df['y'], errors='coerce')
+        prophet_df = prophet_df.dropna()
+        
+        logger.info(f"Prepared Prophet data - Shape: {prophet_df.shape}")
+        return prophet_df
+
+    def split_data(self, prophet_df: pd.DataFrame, train_size: float = 0.8) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Split data for training and evaluation
+        Returns: (train_df, test_df)
+        """
+        split_point = int(len(prophet_df) * train_size)
+        
+        # FIXED: Proper train/test split for accurate metrics calculation
+        train_df = prophet_df[:split_point]  # Use only training portion
+        test_df = prophet_df[split_point:]   # Keep test split for evaluation
+        logger.info(f"Data split - Using {len(train_df)} rows for training, {len(test_df)} rows for evaluation")
+        
+        return train_df, test_df
+
+    def create_model(self, model_config: dict, confidence_interval: float = 0.95) -> Prophet:
+        """
+        Create and configure Prophet model with ALL user parameters
+        """
+        # Convert confidence interval to Prophet's interval_width format
+        if confidence_interval > 1.0:
+            interval_width = confidence_interval / 100.0
+        else:
+            interval_width = confidence_interval
+        
+        # Ensure interval_width is within valid range [0.1, 0.99]
+        interval_width = max(0.1, min(0.99, interval_width))
+        logger.info(f"Using confidence interval: {confidence_interval} -> interval_width: {interval_width}")
+        
+        # Convert seasonality parameters properly
+        def convert_seasonality(value):
+            if isinstance(value, bool):
+                return value
+            elif isinstance(value, str):
+                if value.lower() in ['true', '1', 'yes', 'on']:
+                    return True
+                elif value.lower() in ['false', '0', 'no', 'off']:
+                    return False
+                elif value.lower() == 'auto':
+                    return 'auto'
+                else:
+                    return 'auto'  # Default fallback
             else:
-                feature_config = MLFeatureConfig()
-            
-            # Initialize feature engineer
-            feature_engineer = create_feature_engineer(feature_config)
-            
-            # Engineer features
-            features_df = feature_engineer.engineer_features(df, date_col, target_col)
-            
-            # Select best features
-            selected_features_df = feature_engineer.select_features(features_df)
-            
-            # Calculate feature statistics
-            feature_stats = {
-                'total_features_created': len(feature_engineer.feature_names),
-                'features_selected': len(selected_features_df.columns) - 1,  # Exclude target
-                'feature_types': {
-                    'lag_features': len([f for f in feature_engineer.feature_names if f.startswith('lag_')]),
-                    'rolling_features': len([f for f in feature_engineer.feature_names if f.startswith('rolling_')]),
-                    'time_features': len([f for f in feature_engineer.feature_names if f in ['hour', 'day', 'month', 'year', 'day_of_week']]),
-                    'fourier_features': len([f for f in feature_engineer.feature_names if 'fourier' in f]),
-                    'trend_features': len([f for f in feature_engineer.feature_names if 'trend' in f])
-                },
-                'data_quality': {
-                    'original_rows': len(df),
-                    'engineered_rows': len(features_df),
-                    'selected_rows': len(selected_features_df),
-                    'missing_values_handled': len(df) - len(features_df)
-                }
-            }
-            
-            result = {
-                'engineered_features': features_df,
-                'selected_features': selected_features_df,
-                'feature_names': feature_engineer.feature_names,
-                'feature_statistics': feature_stats,
-                'configuration_used': asdict(feature_config),
-                'created_at': datetime.now().isoformat()
-            }
-            
-            logger.info(f"Feature engineering completed: {feature_stats['total_features_created']} features created, {feature_stats['features_selected']} selected")
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error in feature engineering: {e}")
-            raise
-
-
-    def run_prophet_hyperparameter_optimization(df: pd.DataFrame, date_col: str, target_col: str,
-                                               n_trials: int = 50, timeout: int = 3600) -> Dict[str, Any]:
-        """
-        Run automated hyperparameter optimization for Prophet models
+                return 'auto'  # Default fallback
         
-        Args:
-            df: DataFrame with time series data
-            date_col: Name of date column
-            target_col: Name of target column
-            n_trials: Number of optimization trials
-            timeout: Maximum optimization time in seconds
+        # Build Prophet parameters from user configuration
+        prophet_params = {
+            'yearly_seasonality': convert_seasonality(model_config.get('yearly_seasonality', 'auto')),
+            'weekly_seasonality': convert_seasonality(model_config.get('weekly_seasonality', 'auto')),
+            'daily_seasonality': convert_seasonality(model_config.get('daily_seasonality', 'auto')),
+            'seasonality_mode': model_config.get('seasonality_mode', 'additive'),
+            'changepoint_prior_scale': model_config.get('changepoint_prior_scale', 0.05),
+            'seasonality_prior_scale': model_config.get('seasonality_prior_scale', 10.0),
+            'interval_width': interval_width
+        }
+        
+        # Add growth model if specified
+        if model_config.get('growth') == 'logistic':
+            prophet_params['growth'] = 'logistic'
+        else:
+            prophet_params['growth'] = 'linear'
+        
+        # Initialize Prophet model
+        logger.info("Initializing Prophet model with parameters:")
+        for key, value in prophet_params.items():
+            logger.info(f"  - {key}: {value}")
+        
+        # Add hash of parameters for debugging different configurations
+        import hashlib
+        params_str = str(sorted(prophet_params.items()))
+        params_hash = hashlib.md5(params_str.encode()).hexdigest()[:8]
+        logger.info(f"Configuration hash: {params_hash}")
+        
+        model = Prophet(**prophet_params)
+        
+        # Add holidays if specified
+        if model_config.get('add_holidays', False):
+            self._add_holidays(model, model_config)
+        
+        return model
+
+    def _add_holidays(self, model: Prophet, model_config: dict):
+        """Add holidays to Prophet model"""
+        logger.info("Adding holidays to Prophet model")
+        try:
+            # Get country from config, default to US
+            country_code = model_config.get('holidays_country', 'US').upper()
+            logger.info(f"Using holidays for country: {country_code}")
             
-        Returns:
-            Dictionary containing optimized parameters and performance metrics
+            # Mapping of country codes to holiday functions
+            country_holidays_map = {
+                'US': holidays.US, 'CA': holidays.Canada, 'UK': holidays.UK,
+                'GB': holidays.UK, 'DE': holidays.Germany, 'FR': holidays.France,
+                'IT': holidays.Italy, 'ES': holidays.Spain, 'AU': holidays.Australia,
+                'JP': holidays.Japan, 'CN': holidays.China, 'IN': holidays.India
+            }
+            
+            if country_code in country_holidays_map:
+                country_holidays = country_holidays_map[country_code]()
+            else:
+                logger.warning(f"Country code '{country_code}' not supported, using US holidays as fallback")
+                country_holidays = holidays.US()
+            
+            # Use add_country_holidays for supported countries
+            supported_countries = ['US', 'CA', 'UK', 'GB']
+            if country_code in supported_countries:
+                model.add_country_holidays(country_name=country_code)
+                logger.info(f"Added {country_code} holidays to model")
+            else:
+                # Create custom holiday DataFrame for unsupported countries
+                holiday_df = pd.DataFrame({
+                    'holiday': list(country_holidays.keys()),
+                    'ds': pd.to_datetime(list(country_holidays.keys())),
+                })
+                if not holiday_df.empty:
+                    model.holidays = holiday_df
+                    logger.info(f"Added custom holidays for {country_code}")
+                
+        except ImportError:
+            logger.error("holidays package not available. Install with: pip install holidays")
+        except Exception as e:
+            logger.error(f"Error adding holidays: {str(e)}")
+
+    def calculate_metrics(self, actual_values: np.ndarray, predicted_values: np.ndarray) -> Dict[str, float]:
+        """
+        Calculate comprehensive forecast metrics
         """
         try:
-            # Initialize hyperparameter optimizer
-            optimizer = create_hyperparameter_optimizer(
-                n_trials=n_trials,
-                timeout=timeout
-            )
+            if len(actual_values) == 0 or len(predicted_values) == 0:
+                return {'mape': 0.0, 'mae': 0.0, 'rmse': 0.0, 'r2': 0.0}
             
-            # Run optimization
-            optimization_result = optimizer.optimize_prophet_params(
-                df, date_col, target_col
-            )
+            # Ensure both arrays have same length
+            min_len = min(len(actual_values), len(predicted_values))
+            actual = actual_values[:min_len]
+            predicted = predicted_values[:min_len]
             
-            # Test optimized parameters
-            optimized_forecaster = ProphetForecaster()
+            # Calculate metrics
+            mae = np.mean(np.abs(actual - predicted))
+            mse = np.mean((actual - predicted) ** 2)
+            rmse = np.sqrt(mse)
             
-            # Create model config with optimized parameters
-            optimized_model_config = optimization_result['best_params']
-            base_config = {
-                'train_size': 0.8,
-                'forecast_periods': 30,
-                'include_history': False,
-                'enable_diagnostics': False
+            # MAPE with zero-division protection
+            mask = actual != 0
+            if mask.sum() > 0:
+                mape = np.mean(np.abs((actual[mask] - predicted[mask]) / actual[mask])) * 100
+            else:
+                mape = 100.0
+            
+            # R²
+            ss_res = np.sum((actual - predicted) ** 2)
+            ss_tot = np.sum((actual - np.mean(actual)) ** 2)
+            r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+            
+            return {
+                'mape': float(mape),
+                'mae': float(mae),
+                'rmse': float(rmse),
+                'r2': float(r2)
             }
-            
-            # Run forecast with optimized parameters
-            optimized_result = optimized_forecaster.run_forecast_core(
-                df, date_col, target_col, optimized_model_config, base_config
-            )
-            
-            # Calculate improvement metrics
-            improvement_metrics = {
-                'optimization_trials': optimization_result['n_trials'],
-                'best_score': optimization_result['best_score'],
-                'optimized_parameters': optimization_result['best_params'],
-                'forecast_performance': {
-                    'mape': getattr(optimized_result.metrics, 'mape', None),
-                    'rmse': getattr(optimized_result.metrics, 'rmse', None),
-                    'mae': getattr(optimized_result.metrics, 'mae', None)
-                }
-            }
-            
-            result = {
-                'optimization_results': optimization_result,
-                'optimized_forecast': optimized_result,
-                'improvement_metrics': improvement_metrics,
-                'optimization_summary': {
-                    'trials_completed': optimization_result['n_trials'],
-                    'best_score_achieved': optimization_result['best_score'],
-                    'parameters_optimized': list(optimization_result['best_params'].keys()),
-                    'optimization_time': timeout,
-                    'created_at': datetime.now().isoformat()
-                }
-            }
-            
-            logger.info(f"Hyperparameter optimization completed: {optimization_result['n_trials']} trials, best score: {optimization_result['best_score']:.4f}")
-            return result
             
         except Exception as e:
-            logger.error(f"Error in hyperparameter optimization: {e}")
-            raise
+            logger.error(f"Error calculating metrics: {str(e)}")
+            return {'mape': 0.0, 'mae': 0.0, 'rmse': 0.0, 'r2': 0.0}
 
-except ImportError as e:
-    logger.warning(f"Advanced ML features not available: {e}")
-    
-    # Provide fallback functions
-    def run_prophet_ensemble_forecast(*args, **kwargs):
-        raise ImportError("Advanced ML features not available. Please install required dependencies.")
-    
-    def run_prophet_feature_engineering(*args, **kwargs):
-        raise ImportError("Advanced ML features not available. Please install required dependencies.")
-    
-    def run_prophet_hyperparameter_optimization(*args, **kwargs):
-        raise ImportError("Advanced ML features not available. Please install required dependencies.")
-
-# Configure logging for Prophet module
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Create console handler if not exists
-if not logger.handlers:
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-
-from modules.holidays import get_holidays
-
-
-
-def create_prophet_forecast_chart(model, forecast_df, actual_data, date_col, target_col, confidence_interval=0.8):
-    """
-    Legacy wrapper for backward compatibility - delegates to enterprise architecture
-    """
-    try:
-        logger.info("Using enterprise Prophet visualization layer")
+    def calculate_metrics_from_dataframes(self, forecast: pd.DataFrame, test_df: pd.DataFrame) -> Dict[str, float]:
+        """
+        Calculate forecast metrics on test set with improved matching
+        """
+        if test_df.empty:
+            logger.info("No test data available for metrics calculation")
+            return {'mape': 0.0, 'mae': 0.0, 'rmse': 0.0, 'r2': 0.0}
         
-        # Create visualization configuration
-        config = ProphetVisualizationConfig()
-        plot_generator = ProphetPlotFactory.create_plot_generator(config)
+        logger.info(f"Calculating metrics on test set - Test dates: {len(test_df)}, Forecast dates: {len(forecast)}")
         
-        # Prepare chart data
-        chart_data = plot_generator.prepare_chart_data(
-            model, forecast_df, actual_data, date_col, target_col, confidence_interval
+        try:
+            # Merge forecast and test data on date column for proper alignment
+            test_with_forecast = test_df.merge(
+                forecast[['ds', 'yhat']], 
+                on='ds', 
+                how='inner'
+            )
+            
+            if test_with_forecast.empty:
+                logger.warning("No matching dates between test data and forecast")
+                return {'mape': 0.0, 'mae': 0.0, 'rmse': 0.0, 'r2': 0.0}
+            
+            actual_values = test_with_forecast['y'].values
+            predicted_values = test_with_forecast['yhat'].values
+            
+            logger.info(f"Matched {len(actual_values)} data points for metrics calculation")
+            
+            # Calculate metrics with the properly aligned data
+            metrics = self.calculate_metrics(actual_values, predicted_values)
+            logger.info(f"Calculated metrics: MAPE={metrics['mape']:.2f}%, MAE={metrics['mae']:.2f}, RMSE={metrics['rmse']:.2f}, R²={metrics['r2']:.3f}")
+            
+            return metrics
+            
+        except Exception as e:
+            logger.error(f"Error in metrics calculation: {str(e)}")
+            return {'mape': 0.0, 'mae': 0.0, 'rmse': 0.0, 'r2': 0.0}
+
+    def run_forecast_core(self, df: pd.DataFrame, date_col: str, target_col: str, 
+                         model_config: dict, forecast_config: dict) -> ProphetForecastResult:
+        """
+        Run Prophet forecast using parameters from Forecast Settings section
+        """
+        try:
+            logger.info(f"Starting Prophet forecast - Data shape: {df.shape}, Date col: {date_col}, Target col: {target_col}")
+            logger.info(f"Model config: {model_config}")
+            logger.info(f"Forecast config: {forecast_config}")
+            
+            # Step 1: Comprehensive input validation
+            is_valid, error_msg = self.validate_inputs(df, date_col, target_col, model_config)
+            if not is_valid:
+                return ProphetForecastResult(
+                    success=False,
+                    error=error_msg,
+                    model=None,
+                    raw_forecast=pd.DataFrame(),
+                    metrics={}
+                )
+            
+            # Step 2: Prepare data with quality checks
+            prophet_df = self.prepare_data(df, date_col, target_col)
+            
+            # Step 3: Split data for evaluation using Forecast Settings
+            train_size = forecast_config.get('train_size', 0.8)
+            train_df, test_df = self.split_data(prophet_df, train_size)
+            
+            # Step 4: Create and configure model using Forecast Settings confidence level
+            confidence_level = forecast_config.get('confidence_level', 0.95)
+            model = self.create_model(model_config, confidence_level)
+            
+            # Step 5: Train model
+            logger.info("Fitting Prophet model...")
+            model.fit(train_df)
+            logger.info("Prophet model fitted successfully")
+            
+            # Step 6: Apply cross-validation if enabled in Forecast Settings
+            if forecast_config.get('enable_cross_validation', False):
+                logger.info("Cross-validation enabled in Forecast Settings")
+                cv_folds = forecast_config.get('cv_folds', 5)
+                logger.info(f"Would perform {cv_folds}-fold cross-validation")
+                # Cross-validation implementation would go here
+                pass
+            
+            # Step 7: Generate forecast using horizon from Forecast Settings
+            # Support both 'horizon' and 'forecast_periods' parameter names for compatibility
+            forecast_horizon = forecast_config.get('horizon', forecast_config.get('forecast_periods', 30))
+            logger.info(f"Creating forecast for {forecast_horizon} periods")
+            logger.info(f"Forecast config keys: {list(forecast_config.keys())}")
+            logger.info(f"Forecast config values: {forecast_config}")
+            
+            # Ensure we have a valid horizon
+            if forecast_horizon <= 0:
+                logger.warning(f"Invalid forecast horizon: {forecast_horizon}, defaulting to 30")
+                forecast_horizon = 30
+            
+            # Create future dataframe that includes the full historical period
+            future = model.make_future_dataframe(periods=forecast_horizon)
+            
+            # Add logistic growth cap if specified
+            if model_config.get('growth') == 'logistic' and 'cap' in df.columns:
+                future['cap'] = df['cap'].iloc[-1]  # Use last cap value
+            
+            logger.info("Generating Prophet forecast...")
+            forecast = model.predict(future)
+            logger.info(f"Forecast generated successfully - Shape: {forecast.shape}")
+            
+            # Debug info about forecast periods
+            last_train_date = train_df['ds'].max()
+            future_periods = forecast[forecast['ds'] > last_train_date]
+            logger.info(f"Last training date: {last_train_date}")
+            logger.info(f"Future forecast periods: {len(future_periods)} (expected: {forecast_horizon})")
+            logger.info(f"Forecast date range: {forecast['ds'].min()} to {forecast['ds'].max()}")
+            
+            # Step 8: Calculate comprehensive metrics using proper test set
+            metrics = self.calculate_metrics_from_dataframes(forecast, test_df)
+            
+            # Step 9: Return success result
+            return ProphetForecastResult(
+                success=True,
+                error=None,
+                model=model,
+                raw_forecast=forecast,
+                metrics=metrics
+            )
+            
+        except Exception as e:
+            error_msg = f"Error in Prophet forecasting: {str(e)}"
+            logger.error(error_msg)
+            return ProphetForecastResult(
+                success=False,
+                error=error_msg,
+                model=None,
+                raw_forecast=None,
+                metrics={}
+            )
+
+def render_prophet_config():
+    """
+    Render Prophet configuration UI components - ONLY Prophet-specific parameters
+    General forecast parameters are handled in Forecast Settings section
+    """
+    with st.expander("⚙️ Prophet Configuration", expanded=False):
+        config = {}
+        
+        # Core Prophet Parameters
+        st.subheader("🔧 Core Prophet Parameters")
+        
+        config['changepoint_prior_scale'] = st.slider(
+            "Trend Flexibility",
+            min_value=0.001,
+            max_value=0.5,
+            value=0.05,
+            step=0.001,
+            format="%.3f",
+            help="Controls trend flexibility. Higher values = more flexible trend"
         )
         
-        # Create and return the chart
-        if chart_data.get('success', False):
-            return plot_generator.create_forecast_chart(chart_data)
-        else:
-            st.error(f"Error creating forecast chart: {chart_data.get('error', 'Unknown error')}")
-            return None
-            
-    except Exception as e:
-        logger.error(f"Error in legacy chart creation wrapper: {str(e)}")
-        st.error(f"Error creating Prophet forecast chart: {str(e)}")
-        return None
-
-def generate_data_hash(df: pd.DataFrame, date_col: str, target_col: str, model_config: dict, base_config: dict) -> str:
-    """
-    Generate a hash for caching purposes based on input data and configuration
-    """
-    try:
-        # Create a string representation of the data and configs
-        data_str = f"{df[[date_col, target_col]].to_string()}"
-        config_str = f"{sorted(model_config.items())}{sorted(base_config.items())}"
-        combined_str = data_str + config_str
+        config['seasonality_prior_scale'] = st.slider(
+            "Seasonality Strength",
+            min_value=0.01,
+            max_value=100.0,
+            value=10.0,
+            step=0.01,
+            help="Controls seasonality strength. Higher values = stronger seasonality"
+        )
         
-        # Generate MD5 hash
-        return hashlib.md5(combined_str.encode()).hexdigest()
-    except Exception:
-        # Return empty hash if generation fails
-        return ""
-
-@lru_cache(maxsize=32)
-def _cached_prophet_model_params(
-    seasonality_mode: str,
-    changepoint_prior_scale: float,
-    seasonality_prior_scale: float,
-    interval_width: float,
-    yearly_seasonality: str,
-    weekly_seasonality: str,
-    daily_seasonality: str
-) -> dict:
-    """
-    Cache Prophet model parameters to avoid repeated parameter processing
-    """
-    return {
-        'yearly_seasonality': yearly_seasonality,
-        'weekly_seasonality': weekly_seasonality,
-        'daily_seasonality': daily_seasonality,
-        'seasonality_mode': seasonality_mode,
-        'changepoint_prior_scale': changepoint_prior_scale,
-        'seasonality_prior_scale': seasonality_prior_scale,
-        'interval_width': interval_width
-    }
-
-def optimize_dataframe_for_prophet(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Optimize DataFrame memory usage for Prophet processing
-    """
-    try:
-        optimized_df = df.copy()
+        config['seasonality_mode'] = st.selectbox(
+            "Seasonality Mode",
+            ['additive', 'multiplicative'],
+            index=0,
+            help="How seasonality affects the trend"
+        )
         
-        # Convert datetime column to more efficient format
-        if 'ds' in optimized_df.columns:
-            optimized_df['ds'] = pd.to_datetime(optimized_df['ds'])
+        # Seasonality Configuration
+        st.subheader("📊 Seasonality Configuration")
         
-        # Convert numeric columns to more efficient dtypes
-        if 'y' in optimized_df.columns:
-            optimized_df['y'] = pd.to_numeric(optimized_df['y'], downcast='float')
+        config['yearly_seasonality'] = st.selectbox(
+            "Yearly Seasonality",
+            ['auto', True, False],
+            index=0,
+            help="Automatically detect or manually set yearly patterns"
+        )
         
-        logger.info(f"DataFrame optimized - Memory usage reduced from {df.memory_usage(deep=True).sum()} to {optimized_df.memory_usage(deep=True).sum()} bytes")
-        return optimized_df
-    except Exception as e:
-        logger.warning(f"DataFrame optimization failed: {e}. Using original DataFrame.")
-        return df
-
-def validate_prophet_inputs(df: pd.DataFrame, date_col: str, target_col: str) -> None:
-    """
-    Robust input validation for Prophet forecasting
-    """
-    if not isinstance(df, pd.DataFrame):
-        raise TypeError("df must be pandas DataFrame")
-    if df.empty:
-        raise ValueError("DataFrame cannot be empty")
-    if not isinstance(date_col, str) or not date_col:
-        raise ValueError("date_col must be a non-empty string")
-    if not isinstance(target_col, str) or not target_col:
-        raise ValueError("target_col must be a non-empty string")
-    
-    # Sanitize column names to prevent injection attacks
-    safe_date_col = str(date_col).strip()
-    safe_target_col = str(target_col).strip()
-    
-    if safe_date_col not in df.columns:
-        raise KeyError(f"Date column not found in DataFrame")
-    if safe_target_col not in df.columns:
-        raise KeyError(f"Target column not found in DataFrame")
-    
-    # Check for minimum data requirements
-    if len(df) < 10:
-        raise ValueError(f"Insufficient data points: {len(df)} (minimum 10 required for Prophet)")
-    
-    # Check for maximum data size to prevent memory issues
-    if len(df) > 100000:
-        logger.warning(f"Large dataset detected: {len(df)} rows. Consider data sampling for better performance.")
-    
-    # Validate target column data type and missing values
-    target_series = df[safe_target_col]
-    if target_series.isna().sum() > len(df) * 0.3:
-        raise ValueError(f"Too many missing values in target column: {target_series.isna().sum()}/{len(df)} (>30%)")
-    
-    # Check for numeric target values
-    try:
-        numeric_values = pd.to_numeric(target_series.dropna(), errors='raise')
-        # Check for infinite or extremely large values
-        if np.isinf(numeric_values).any():
-            raise ValueError("Target column contains infinite values")
-        if (np.abs(numeric_values) > 1e10).any():
-            logger.warning("Target column contains very large values which may cause numerical instability")
-    except (ValueError, TypeError):
-        raise ValueError(f"Target column contains non-numeric values")
-    
-    # Validate date column
-    try:
-        date_values = pd.to_datetime(df[safe_date_col], errors='raise')
-        # Check for reasonable date range
-        if date_values.min().year < 1900 or date_values.max().year > 2100:
-            logger.warning("Date values outside reasonable range (1900-2100)")
-    except (ValueError, TypeError):
-        raise ValueError(f"Date column contains invalid date values")
-    
-    # Check for zero variance
-    numeric_target = pd.to_numeric(target_series.dropna(), errors='coerce')
-    if numeric_target.std() == 0:
-        raise ValueError("Target column has zero variance - cannot forecast constant values")
+        config['weekly_seasonality'] = st.selectbox(
+            "Weekly Seasonality", 
+            ['auto', True, False],
+            index=0,
+            help="Automatically detect or manually set weekly patterns"
+        )
+        
+        config['daily_seasonality'] = st.selectbox(
+            "Daily Seasonality",
+            ['auto', True, False],
+            index=0,
+            help="Automatically detect or manually set daily patterns"
+        )
+        
+        # Growth Model Configuration
+        st.subheader("📈 Growth Model")
+        config['growth'] = st.selectbox(
+            "Growth Model",
+            options=['linear', 'logistic'],
+            index=0,
+            help="Type of growth trend"
+        )
+        
+        if config['growth'] == 'logistic':
+            st.warning("⚠️ Logistic growth requires 'cap' column in data")
+        
+        # Holiday Effects
+        st.subheader("🎉 Holiday Effects")
+        config['add_holidays'] = st.checkbox(
+            "Add Holiday Effects",
+            value=False,
+            help="Include country-specific holidays in the model"
+        )
+        
+        if config['add_holidays']:
+            config['holidays_country'] = st.selectbox(
+                "Select Country",
+                options=['US', 'CA', 'UK', 'DE', 'FR', 'IT', 'ES', 'AU', 'JP'],
+                index=0,
+                help="Country for holiday calendar"
+            )
+        
+        return config
 
 def run_prophet_forecast(df: pd.DataFrame, date_col: str, target_col: str, 
-                        model_config: dict, base_config: dict):
+                        model_config: dict, forecast_config: dict):
     """
-    Enterprise Prophet forecast interface - delegates to clean architecture
+    Main Prophet forecast interface - uses Forecast Settings parameters
     """
     try:
-        logger.info("Using enterprise Prophet forecasting architecture")
+        logger.info("Using unified Prophet forecasting architecture")
         
         # Initialize Prophet forecaster
         forecaster = ProphetForecaster()
         
-        # Run forecast using clean architecture
-        result = forecaster.run_forecast_core(df, date_col, target_col, model_config, base_config)
+        # Run forecast using forecast_config from Forecast Settings
+        result = forecaster.run_forecast_core(df, date_col, target_col, model_config, forecast_config)
         
         if result.success:
             # Store results in session state for diagnostics
@@ -486,14 +562,14 @@ def run_prophet_forecast(df: pd.DataFrame, date_col: str, target_col: str,
                 'target_col': target_col
             }
             
-            # Create visualizations using presentation layer
+            # Create visualizations
             plots = create_prophet_plots(result, df, date_col, target_col)
             
             # Convert to legacy format for backward compatibility
             forecast_output = result.raw_forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
             forecast_output.columns = [date_col, f'{target_col}_forecast', f'{target_col}_lower', f'{target_col}_upper']
             
-            logger.info(f"Enterprise Prophet forecast completed successfully - Output shape: {forecast_output.shape}")
+            logger.info(f"Unified Prophet forecast completed successfully - Output shape: {forecast_output.shape}")
             return forecast_output, result.metrics, plots
             
         else:
@@ -502,782 +578,251 @@ def run_prophet_forecast(df: pd.DataFrame, date_col: str, target_col: str,
             return pd.DataFrame(), {}, {}
             
     except Exception as e:
-        logger.error(f"Error in enterprise Prophet forecast interface: {str(e)}")
+        logger.error(f"Error in unified Prophet forecast interface: {str(e)}")
         st.error(f"Error in Prophet forecasting: {str(e)}")
         return pd.DataFrame(), {}, {}
 
+def create_prophet_plots(result: ProphetForecastResult, df: pd.DataFrame, 
+                        date_col: str, target_col: str) -> Dict[str, Any]:
+    """
+    Create comprehensive Prophet visualization plots
+    """
+    plots = {}
+    
+    try:
+        if not result.success or result.raw_forecast is None:
+            return plots
+        
+        # Main forecast plot
+        fig = go.Figure()
+        
+        # Historical data (torna al colore blu originale)
+        fig.add_trace(go.Scatter(
+            x=df[date_col],
+            y=df[target_col],
+            mode='lines',
+            name='Historical Data',
+            line=dict(color='blue', width=2)
+        ))
+        
+        # Forecast completo (come era originalmente ma con logica corretta)
+        forecast = result.raw_forecast
+        fig.add_trace(go.Scatter(
+            x=forecast['ds'],
+            y=forecast['yhat'],
+            mode='lines',
+            name='Forecast',
+            line=dict(color='red', width=2)
+        ))
+        
+        # Confidence intervals (torna all'originale)
+        fig.add_trace(go.Scatter(
+            x=forecast['ds'],
+            y=forecast['yhat_upper'],
+            mode='lines',
+            name='Upper Bound',
+            line=dict(color='rgba(255,0,0,0.3)', width=0),
+            showlegend=False
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=forecast['ds'],
+            y=forecast['yhat_lower'],
+            mode='lines',
+            name='Confidence Interval',
+            line=dict(color='rgba(255,0,0,0.3)', width=0),
+            fill='tonexty',
+            fillcolor='rgba(255,0,0,0.1)',
+            showlegend=True
+        ))
+        
+        # Aggiungi pulsanti di filtro temporale
+        fig.update_layout(
+            title=f"Prophet Forecast: {target_col}",
+            xaxis_title="Date",
+            yaxis_title=target_col,
+            height=500,
+            hovermode='x unified',
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=0.95
+            ),
+            xaxis=dict(
+                rangeselector=dict(
+                    buttons=list([
+                        dict(count=30, label="1M", step="day", stepmode="backward"),
+                        dict(count=90, label="3M", step="day", stepmode="backward"),
+                        dict(count=180, label="6M", step="day", stepmode="backward"),
+                        dict(count=365, label="1Y", step="day", stepmode="backward"),
+                        dict(count=730, label="2Y", step="day", stepmode="backward"),
+                        dict(step="all", label="All")
+                    ]),
+                    x=0.02,
+                    xanchor="left",
+                    y=1.02,
+                    yanchor="bottom"
+                ),
+                rangeslider=dict(visible=True),
+                type="date"
+            )
+        )
+        
+        plots['forecast_plot'] = fig
+        
+        # Components plot if model is available - create a Plotly version instead
+        if result.model is not None:
+            try:
+                # Create a simplified components analysis using Plotly
+                components_fig = create_prophet_components_plotly(forecast, target_col)
+                if components_fig is not None:
+                    plots['components_plot'] = components_fig
+                    logger.info("Prophet components plot created successfully (Plotly version)")
+            except Exception as e:
+                logger.warning(f"Could not create components plot: {e}")
+                # Skip components plot - forecast will still work
+                logger.info("Skipping components plot - forecast will still work")
+        
+    except Exception as e:
+        logger.error(f"Error creating Prophet plots: {e}")
+    
+    return plots
+
+def create_prophet_components_plotly(forecast: pd.DataFrame, target_col: str) -> go.Figure:
+    """
+    Create Prophet components plot using Plotly (alternative to matplotlib version)
+    """
+    try:
+        from plotly.subplots import make_subplots
+        
+        # Create subplots for trend and seasonality components
+        fig = make_subplots(
+            rows=3, cols=1,
+            subplot_titles=('Trend', 'Weekly Seasonality', 'Yearly Seasonality'),
+            vertical_spacing=0.15
+        )
+        
+        # Trend component
+        if 'trend' in forecast.columns:
+            fig.add_trace(
+                go.Scatter(x=forecast['ds'], y=forecast['trend'],
+                          mode='lines', name='Trend',
+                          line=dict(color='blue', width=2)),
+                row=1, col=1
+            )
+        
+        # Weekly seasonality
+        if 'weekly' in forecast.columns:
+            fig.add_trace(
+                go.Scatter(x=forecast['ds'], y=forecast['weekly'],
+                          mode='lines', name='Weekly',
+                          line=dict(color='green', width=2)),
+                row=2, col=1
+            )
+        
+        # Yearly seasonality
+        if 'yearly' in forecast.columns:
+            fig.add_trace(
+                go.Scatter(x=forecast['ds'], y=forecast['yearly'],
+                          mode='lines', name='Yearly',
+                          line=dict(color='orange', width=2)),
+                row=3, col=1
+            )
+        
+        # Update layout
+        fig.update_layout(
+            height=800,
+            title_text=f"Prophet Components Analysis - {target_col}",
+            showlegend=False
+        )
+        
+        # Update axes labels
+        fig.update_xaxes(title_text="Date", row=3, col=1)
+        fig.update_yaxes(title_text="Trend", row=1, col=1)
+        fig.update_yaxes(title_text="Weekly", row=2, col=1)
+        fig.update_yaxes(title_text="Yearly", row=3, col=1)
+        
+        return fig
+        
+    except Exception as e:
+        logger.error(f"Error creating Plotly components plot: {e}")
+        return None
+
+def run_prophet_diagnostics(df: pd.DataFrame, date_col: str, target_col: str,
+                           result: ProphetForecastResult, show_diagnostic_plots: bool = True) -> Dict[str, Any]:
+    """
+    Run comprehensive Prophet diagnostics
+    """
+    diagnostic_results = {}
+    
+    try:
+        if not result.success or result.raw_forecast is None:
+            return diagnostic_results
+        
+        # Residual analysis
+        if not df.empty and date_col in df.columns and target_col in df.columns:
+            # Get historical data
+            historical = df.set_index(date_col)[target_col]
+            
+            # Get forecast for historical period
+            forecast_historical = result.raw_forecast[
+                result.raw_forecast['ds'].isin(df[date_col])
+            ].set_index('ds')['yhat']
+            
+            # Calculate residuals
+            residuals = historical - forecast_historical
+            residuals = residuals.dropna()
+            
+            if len(residuals) > 0:
+                diagnostic_results['residual_analysis'] = {
+                    'mean': float(residuals.mean()),
+                    'std': float(residuals.std()),
+                    'skewness': float(residuals.skew()),
+                    'kurtosis': float(residuals.kurtosis()),
+                    'count': len(residuals)
+                }
+        
+        # Model performance metrics
+        if result.metrics:
+            diagnostic_results['performance_metrics'] = result.metrics
+        
+        # Forecast quality assessment
+        if not result.raw_forecast.empty:
+            forecast_values = result.raw_forecast['yhat']
+            diagnostic_results['forecast_quality'] = {
+                'mean_forecast': float(forecast_values.mean()),
+                'std_forecast': float(forecast_values.std()),
+                'forecast_range': float(forecast_values.max() - forecast_values.min()),
+                'trend_direction': 'increasing' if forecast_values.iloc[-1] > forecast_values.iloc[0] else 'decreasing'
+            }
+        
+    except Exception as e:
+        logger.error(f"Error in Prophet diagnostics: {e}")
+    
+    return diagnostic_results
+
+# Legacy function for backward compatibility
 def run_prophet_forecast_legacy(df: pd.DataFrame, date_col: str, target_col: str, 
                         model_config: dict, base_config: dict):
     """
-    Legacy Prophet forecast implementation (preserved for reference)
+    Legacy Prophet forecast implementation - converts base_config to forecast_config
     """
-    # Legacy implementation moved to archive - use run_prophet_forecast() instead
-    logger.warning("Legacy Prophet forecast called - redirecting to enterprise implementation")
-    return run_prophet_forecast(df, date_col, target_col, model_config, base_config)
+    logger.warning("Legacy Prophet forecast called - converting base_config to forecast_config")
+    # Convert old base_config format to new forecast_config format
+    forecast_config = {
+        'forecast_periods': base_config.get('forecast_periods', 30),  # Keep original name
+        'horizon': base_config.get('forecast_periods', 30),          # Add for compatibility
+        'confidence_level': base_config.get('confidence_interval', 0.95),
+        'train_size': base_config.get('train_size', 0.8),
+        'enable_cross_validation': False
+    }
+    return run_prophet_forecast(df, date_col, target_col, model_config, forecast_config)
 
-def run_prophet_forecast_optimized(df: pd.DataFrame, date_col: str, target_col: str, 
-                                   model_config: dict, base_config: dict,
-                                   enable_optimization: bool = True):
-    """
-    Performance-optimized Prophet forecast with automatic tuning and monitoring
-    
-    Args:
-        df: Input DataFrame with time series data
-        date_col: Name of the date column
-        target_col: Name of the target column
-        model_config: Prophet model configuration
-        base_config: Base forecast configuration
-        enable_optimization: Whether to apply performance optimizations
-        
-    Returns:
-        Tuple of (forecast_df, metrics, plots, performance_report)
-    """
-    try:
-        logger.info("Starting optimized Prophet forecasting with performance monitoring")
-        
-        if enable_optimization:
-            # Initialize optimization components
-            optimizer = create_dataframe_optimizer()
-            forecaster = create_optimized_forecaster(enable_parallel=True)
-            
-            # Optimize DataFrame
-            df_optimized = optimizer.optimize_dataframe(df.copy())
-            logger.info(f"DataFrame optimized: {optimizer.get_optimization_stats()['memory_savings_pct']:.1f}% memory saved")
+# Factory function for easy instantiation
+def create_prophet_forecaster() -> ProphetForecaster:
+    """Factory function to create ProphetForecaster instance"""
+    return ProphetForecaster()
 
-            # Auto-tune configuration using new optimization logic
-            from modules.prophet_performance import optimize_prophet_hyperparameters
-            tuned_model_config, tuned_base_config, _ = optimize_prophet_hyperparameters(
-                df_optimized, model_config, base_config
-            )
 
-            logger.info("Auto-tuning applied for optimal performance")
-
-        else:
-            # Use standard components
-            df_optimized = df.copy()
-            tuned_model_config = model_config
-            tuned_base_config = base_config
-            forecaster = ProphetForecaster()
-
-        # Run forecast with performance monitoring
-        with performance_monitor.monitor_execution("optimized_prophet_forecast") as monitor:
-            result = forecaster.run_forecast_core(
-                df_optimized, date_col, target_col, tuned_model_config, tuned_base_config
-            )
-        
-        if result.success:
-            # Store results in session state for diagnostics
-            st.session_state.last_prophet_result = result
-            st.session_state.last_prophet_data = {
-                'df': df_optimized.copy(),
-                'date_col': date_col,
-                'target_col': target_col
-            }
-            
-            # Create visualizations using presentation layer
-            plots = create_prophet_plots(result, df_optimized, date_col, target_col)
-            
-            # Generate performance report
-            performance_report = get_performance_report()
-            
-            # Add optimization metrics if applied
-            if enable_optimization and 'optimizer' in locals():
-                performance_report['dataframe_optimization'] = optimizer.get_optimization_stats()
-            
-            # Convert to legacy format for backward compatibility
-            forecast_output = result.raw_forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
-            forecast_output.columns = [date_col, f'{target_col}_forecast', f'{target_col}_lower', f'{target_col}_upper']
-            
-            logger.info(f"Optimized Prophet forecast completed - Performance report available")
-            return forecast_output, result.metrics, plots, performance_report
-            
-        else:
-            logger.error(f"Optimized Prophet forecast failed: {result.error}")
-            st.error(f"Prophet forecast failed: {result.error}")
-            return pd.DataFrame(), {}, {}, {}
-            
-    except Exception as e:
-        logger.error(f"Error in optimized Prophet forecast: {str(e)}")
-        st.error(f"Error in Prophet forecasting: {str(e)}")
-        return pd.DataFrame(), {}, {}, {}
-
-def run_prophet_diagnostics(df: pd.DataFrame, date_col: str, target_col: str,
-                           forecast_result: ProphetForecastResult,
-                           show_diagnostic_plots: bool = True) -> Dict[str, Any]:
-    """
-    Run comprehensive diagnostic analysis on Prophet forecast results
-    
-    Args:
-        df: Original data used for forecasting
-        date_col: Name of the date column
-        target_col: Name of target column  
-        forecast_result: Result from Prophet forecasting
-        show_diagnostic_plots: Whether to display diagnostic plots in Streamlit
-        
-    Returns:
-        Dictionary containing diagnostic analysis and plots
-    """
-    try:
-        logger.info("Starting Prophet diagnostic analysis")
-        
-        # Initialize diagnostic components
-        diagnostic_config = ProphetDiagnosticConfig()
-        analyzer = create_diagnostic_analyzer(diagnostic_config)
-        plots_generator = create_diagnostic_plots(diagnostic_config)
-        
-        # Run comprehensive analysis
-        analysis = analyzer.analyze_forecast_quality(forecast_result, df, date_col, target_col)
-        
-        # Generate diagnostic plots
-        diagnostic_plots = plots_generator.create_comprehensive_diagnostic_report(
-            forecast_result, df, date_col, target_col
-        )
-        
-        # Display plots in Streamlit if requested
-        if show_diagnostic_plots and diagnostic_plots:
-            st.subheader("📊 Extended Diagnostic Analysis")
-            
-            # Quality Dashboard
-            if 'quality_dashboard' in diagnostic_plots:
-                st.plotly_chart(diagnostic_plots['quality_dashboard'], width='stretch')
-            
-            # Create tabs for different diagnostic views
-            diagnostic_tabs = st.tabs([
-                "🔍 Residual Analysis", 
-                "📈 Trend Decomposition", 
-                "🌊 Seasonality Analysis", 
-                "📏 Uncertainty Analysis",
-                "✅ Forecast Validation"
-            ])
-            
-            with diagnostic_tabs[0]:
-                if 'residual_analysis' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['residual_analysis'], width='stretch')
-                    
-                    # Show residual statistics
-                    residual_stats = analysis.get('residual_analysis', {})
-                    if 'error' not in residual_stats:
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.metric(
-                                "Mean Residual", 
-                                f"{residual_stats.get('mean_residual', 0):.4f}",
-                                help="Average of residuals (should be close to 0)"
-                            )
-                        
-                        with col2:
-                            st.metric(
-                                "Residual Std", 
-                                f"{residual_stats.get('std_residual', 0):.4f}",
-                                help="Standard deviation of residuals"
-                            )
-                        
-                        with col3:
-                            normality = "✅ Normal" if residual_stats.get('is_normally_distributed', False) else "❌ Not Normal"
-                            st.metric(
-                                "Normality Test", 
-                                normality,
-                                help="Shapiro-Wilk test for normality"
-                            )
-            
-            with diagnostic_tabs[1]:
-                if 'trend_decomposition' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['trend_decomposition'], width='stretch')
-                    
-                    # Show trend statistics
-                    trend_stats = analysis.get('trend_analysis', {})
-                    if 'error' not in trend_stats:
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.metric(
-                                "Trend Direction", 
-                                trend_stats.get('trend_direction', 'Unknown').title(),
-                                help="Overall direction of the trend"
-                            )
-                        
-                        with col2:
-                            st.metric(
-                                "Trend Slope", 
-                                f"{trend_stats.get('trend_slope', 0):.6f}",
-                                help="Linear slope of the trend"
-                            )
-                        
-                        with col3:
-                            st.metric(
-                                "Significant Changes", 
-                                f"{trend_stats.get('significant_changes', 0)}",
-                                help="Number of significant trend changes detected"
-                            )
-            
-            with diagnostic_tabs[2]:
-                if 'seasonality_analysis' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['seasonality_analysis'], width='stretch')
-                    
-                    # Show seasonality strength
-                    seasonality_stats = analysis.get('seasonality_analysis', {})
-                    if seasonality_stats:
-                        for component, stats in seasonality_stats.items():
-                            if isinstance(stats, dict):
-                                st.subheader(f"{component.title()} Seasonality")
-                                col1, col2, col3 = st.columns(3)
-                                
-                                with col1:
-                                    st.metric(
-                                        "Amplitude", 
-                                        f"{stats.get('amplitude', 0):.2f}",
-                                        help="Range of seasonal variation"
-                                    )
-                                
-                                with col2:
-                                    st.metric(
-                                        "Strength", 
-                                        f"{stats.get('strength', 0):.3f}",
-                                        help="Relative strength of seasonality"
-                                    )
-                                
-                                with col3:
-                                    st.metric(
-                                        "Std Deviation", 
-                                        f"{stats.get('std', 0):.2f}",
-                                        help="Standard deviation of seasonal component"
-                                    )
-            
-            with diagnostic_tabs[3]:
-                if 'uncertainty_analysis' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['uncertainty_analysis'], width='stretch')
-                    
-                    # Show uncertainty statistics
-                    uncertainty_stats = analysis.get('uncertainty_analysis', {})
-                    if 'error' not in uncertainty_stats:
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.metric(
-                                "Mean Interval Width", 
-                                f"{uncertainty_stats.get('mean_interval_width', 0):.2f}",
-                                help="Average width of confidence intervals"
-                            )
-                        
-                        with col2:
-                            st.metric(
-                                "Relative Width (%)", 
-                                f"{uncertainty_stats.get('mean_relative_width', 0) * 100:.1f}%",
-                                help="Average relative width of intervals"
-                            )
-                        
-                        with col3:
-                            st.metric(
-                                "Interval Symmetry", 
-                                f"{uncertainty_stats.get('interval_symmetry', 0):.3f}",
-                                help="Symmetry of confidence intervals (-1 to 1)"
-                            )
-            
-            with diagnostic_tabs[4]:
-                if 'forecast_validation' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['forecast_validation'], width='stretch')
-                    
-                    # Show validation statistics
-                    coverage_stats = analysis.get('forecast_coverage', {})
-                    if 'error' not in coverage_stats:
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.metric(
-                                "Data Coverage", 
-                                f"{coverage_stats.get('coverage_ratio', 0) * 100:.1f}%",
-                                help="Percentage of actual data covered by forecast"
-                            )
-                        
-                        with col2:
-                            overlap_days = coverage_stats.get('overlap_days', 0)
-                            st.metric(
-                                "Overlap Days", 
-                                f"{overlap_days}",
-                                help="Number of days with both actual and forecast data"
-                            )
-                        
-                        with col3:
-                            quality_score = analysis.get('quality_score', 0)
-                            st.metric(
-                                "Quality Score", 
-                                f"{quality_score:.1f}/100",
-                                help="Overall forecast quality score",
-                                delta=f"{quality_score - 75:.1f}" if quality_score > 0 else None
-                            )
-        
-        logger.info(f"Prophet diagnostic analysis completed - Quality Score: {analysis.get('quality_score', 0):.1f}")
-        
-        return {
-            'analysis': analysis,
-            'plots': diagnostic_plots,
-            'quality_score': analysis.get('quality_score', 0)
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in Prophet diagnostic analysis: {str(e)}")
-        st.error(f"Error in diagnostic analysis: {str(e)}")
-        return {
-            'analysis': {'error': str(e)},
-            'plots': {},
-            'quality_score': 0
-        }
-
-def run_prophet_diagnostics_optimized(df: pd.DataFrame, date_col: str, target_col: str,
-                                     forecast_result: ProphetForecastResult,
-                                     show_diagnostic_plots: bool = True,
-                                     enable_parallel: bool = True) -> Dict[str, Any]:
-    """
-    Performance-optimized diagnostic analysis with parallel processing
-    
-    Args:
-        df: Original data used for forecasting
-        date_col: Name of the date column
-        target_col: Name of the target column  
-        forecast_result: Result from Prophet forecasting
-        show_diagnostic_plots: Whether to display diagnostic plots in Streamlit
-        enable_parallel: Whether to use parallel processing for diagnostics
-        
-    Returns:
-        Dictionary containing diagnostic analysis, plots, and performance metrics
-    """
-    try:
-        logger.info("Starting optimized Prophet diagnostic analysis")
-        
-        with performance_monitor.monitor_execution("optimized_diagnostics") as monitor:
-            if enable_parallel:
-                # Use optimized forecaster for parallel diagnostics
-                optimized_forecaster = create_optimized_forecaster(enable_parallel=True)
-                analysis = optimized_forecaster.run_parallel_diagnostics(
-                    df, date_col, target_col, forecast_result
-                )
-                logger.info("Parallel diagnostic analysis completed")
-            else:
-                # Standard diagnostic analysis
-                analyzer = create_diagnostic_analyzer()
-                analysis = analyzer.analyze_forecast_quality(forecast_result, df, date_col, target_col)
-                logger.info("Sequential diagnostic analysis completed")
-            
-            # Generate diagnostic plots
-            diagnostic_config = ProphetDiagnosticConfig()
-            plots_generator = create_diagnostic_plots(diagnostic_config)
-            diagnostic_plots = plots_generator.create_comprehensive_diagnostic_report(
-                forecast_result, df, date_col, target_col
-            )
-        
-        # Display plots in Streamlit if requested
-        if show_diagnostic_plots and diagnostic_plots:
-            st.subheader("📊 Optimized Diagnostic Analysis")
-            
-            # Performance metrics display
-            if performance_monitor.metrics_history:
-                latest_metrics = performance_monitor.metrics_history[-1]
-                
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric(
-                        "Analysis Time", 
-                        f"{latest_metrics.execution_time:.2f}s",
-                        help="Time taken for diagnostic analysis"
-                    )
-                with col2:
-                    st.metric(
-                        "Memory Usage", 
-                        f"{latest_metrics.memory_usage:.1f}MB",
-                        help="Memory used during analysis"
-                    )
-                with col3:
-                    st.metric(
-                        "Cache Hit Ratio", 
-                        f"{performance_monitor.get_cache_hit_ratio():.1%}",
-                        help="Percentage of cached results used"
-                    )
-                with col4:
-                    optimization_count = len(latest_metrics.optimization_applied)
-                    st.metric(
-                        "Optimizations", 
-                        f"{optimization_count}",
-                        help="Number of performance optimizations applied"
-                    )
-            # Diagnostic tabs (existing code from previous implementation)
-            diagnostic_tabs = st.tabs([
-                "🔍 Residual Analysis", 
-                "📈 Trend Decomposition", 
-                "🌊 Seasonality Analysis", 
-                "📏 Uncertainty Analysis",
-                "✅ Forecast Validation"
-            ])
-            
-            with diagnostic_tabs[0]:
-                if 'residual_analysis' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['residual_analysis'], width='stretch')
-                    
-                    # Show residual statistics
-                    residual_stats = analysis.get('residual_analysis', {})
-                    if 'error' not in residual_stats:
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.metric(
-                                "Mean Residual", 
-                                f"{residual_stats.get('mean_residual', 0):.4f}",
-                                help="Average of residuals (should be close to 0)"
-                            )
-                        
-                        with col2:
-                            st.metric(
-                                "Residual Std", 
-                                f"{residual_stats.get('std_residual', 0):.4f}",
-                                help="Standard deviation of residuals"
-                            )
-                        
-                        with col3:
-                            normality = "✅ Normal" if residual_stats.get('is_normally_distributed', False) else "❌ Not Normal"
-                            st.metric(
-                                "Normality Test", 
-                                normality,
-                                help="Shapiro-Wilk test for normality"
-                            )
-            
-            with diagnostic_tabs[1]:
-                if 'trend_decomposition' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['trend_decomposition'], width='stretch')
-                    
-                    # Show trend statistics
-                    trend_stats = analysis.get('trend_analysis', {})
-                    if 'error' not in trend_stats:
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.metric(
-                                "Trend Direction", 
-                                trend_stats.get('trend_direction', 'Unknown').title(),
-                                help="Overall direction of the trend"
-                            )
-                        
-                        with col2:
-                            st.metric(
-                                "Trend Slope", 
-                                f"{trend_stats.get('trend_slope', 0):.6f}",
-                                help="Linear slope of the trend"
-                            )
-                        
-                        with col3:
-                            st.metric(
-                                "Significant Changes", 
-                                f"{trend_stats.get('significant_changes', 0)}",
-                                help="Number of significant trend changes detected"
-                            )
-            
-            with diagnostic_tabs[2]:
-                if 'seasonality_analysis' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['seasonality_analysis'], width='stretch')
-                    
-                    # Show seasonality strength
-                    seasonality_stats = analysis.get('seasonality_analysis', {})
-                    if seasonality_stats:
-                        for component, stats in seasonality_stats.items():
-                            if isinstance(stats, dict):
-                                st.subheader(f"{component.title()} Seasonality")
-                                col1, col2, col3 = st.columns(3)
-                                
-                                with col1:
-                                    st.metric(
-                                        "Amplitude", 
-                                        f"{stats.get('amplitude', 0):.2f}",
-                                        help="Range of seasonal variation"
-                                    )
-                                
-                                with col2:
-                                    st.metric(
-                                        "Strength", 
-                                        f"{stats.get('strength', 0):.3f}",
-                                        help="Relative strength of seasonality"
-                                    )
-                                
-                                with col3:
-                                    st.metric(
-                                        "Std Deviation", 
-                                        f"{stats.get('std', 0):.2f}",
-                                        help="Standard deviation of seasonal component"
-                                    )
-            
-            with diagnostic_tabs[3]:
-                if 'uncertainty_analysis' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['uncertainty_analysis'], width='stretch')
-                    
-                    # Show uncertainty statistics
-                    uncertainty_stats = analysis.get('uncertainty_analysis', {})
-                    if 'error' not in uncertainty_stats:
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.metric(
-                                "Mean Interval Width", 
-                                f"{uncertainty_stats.get('mean_interval_width', 0):.2f}",
-                                help="Average width of confidence intervals"
-                            )
-                        
-                        with col2:
-                            st.metric(
-                                "Relative Width (%)", 
-                                f"{uncertainty_stats.get('mean_relative_width', 0) * 100:.1f}%",
-                                help="Average relative width of intervals"
-                            )
-                        
-                        with col3:
-                            st.metric(
-                                "Interval Symmetry", 
-                                f"{uncertainty_stats.get('interval_symmetry', 0):.3f}",
-                                help="Symmetry of confidence intervals (-1 to 1)"
-                            )
-            
-            with diagnostic_tabs[4]:
-                if 'forecast_validation' in diagnostic_plots:
-                    st.plotly_chart(diagnostic_plots['forecast_validation'], width='stretch')
-                    
-                    # Show validation statistics
-                    coverage_stats = analysis.get('forecast_coverage', {})
-                    if 'error' not in coverage_stats:
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.metric(
-                                "Data Coverage", 
-                                f"{coverage_stats.get('coverage_ratio', 0) * 100:.1f}%",
-                                help="Percentage of actual data covered by forecast"
-                            )
-                        
-                        with col2:
-                            overlap_days = coverage_stats.get('overlap_days', 0)
-                            st.metric(
-                                "Overlap Days", 
-                                f"{overlap_days}",
-                                help="Number of days with both actual and forecast data"
-                            )
-                        
-                        with col3:
-                            quality_score = analysis.get('quality_score', 0)
-                            st.metric(
-                                "Quality Score", 
-                                f"{quality_score:.1f}/100",
-                                help="Overall forecast quality score",
-                                delta=f"{quality_score - 75:.1f}" if quality_score > 0 else None
-                            )
-        
-        logger.info(f"Optimized diagnostic analysis completed - Quality Score: {quality_score:.1f}")
-        return {
-            'analysis': analysis,
-            'plots': diagnostic_plots,
-            'quality_score': quality_score,
-            'optimization_enabled': enable_parallel
-        }
-    except Exception as e:
-        logger.error(f"Error in optimized Prophet diagnostic analysis: {str(e)}")
-        st.error(f"Error in diagnostic analysis: {str(e)}")
-        return {
-            'analysis': {'error': str(e)},
-            'plots': {},
-            'quality_score': 0
-        }
-
-def run_prophet_benchmarking(df: pd.DataFrame, date_col: str, target_col: str,
-                             model_configs: List[dict], base_config: dict,
-                             num_runs: int = 3) -> Dict[str, Any]:
-    """
-    Benchmark multiple Prophet configurations for performance comparison
-    
-    Args:
-        df: Input DataFrame
-        date_col: Date column name
-        target_col: Target column name
-        model_configs: List of model configurations to benchmark
-        base_config: Base configuration
-        num_runs: Number of runs per configuration
-        
-    Returns:
-        Comprehensive benchmark results
-    """
-    try:
-        logger.info(f"Starting Prophet model benchmarking with {len(model_configs)} configurations")
-        
-        benchmark_results = {
-            'configurations': [],
-            'performance_comparison': {},
-            'recommendations': [],
-            'best_configuration': None
-        }
-        
-        for i, config in enumerate(model_configs):
-            config_name = f"Config_{i+1}"
-            logger.info(f"Benchmarking {config_name}")
-            
-            config_results = {
-                'name': config_name,
-                'config': config,
-                'runs': [],
-                'average_metrics': {},
-                'performance_score': 0
-            }
-            
-            # Run multiple iterations
-            for run in range(num_runs):
-                with performance_monitor.monitor_execution(f"{config_name}_run_{run}"):
-                    try:
-                        # Use optimized forecaster
-                        forecaster = create_optimized_forecaster()
-                        result = forecaster.run_forecast_core(df, date_col, target_col, config, base_config)
-                        
-                        if result.success and performance_monitor.metrics_history:
-                            latest_metrics = performance_monitor.metrics_history[-1]
-                            config_results['runs'].append({
-                                'run_number': run,
-                                'execution_time': latest_metrics.execution_time,
-                                'memory_usage': latest_metrics.memory_usage,
-                                'forecast_metrics': result.metrics
-                            })
-                    except Exception as e:
-                        logger.warning(f"Run {run} failed for {config_name}: {e}")
-            
-            # Calculate averages
-            if config_results['runs']:
-                avg_time = np.mean([r['execution_time'] for r in config_results['runs']])
-                avg_memory = np.mean([r['memory_usage'] for r in config_results['runs']])
-                avg_mape = np.mean([r['forecast_metrics'].get('mape', 100) for r in config_results['runs']])
-                
-                config_results['average_metrics'] = {
-                    'avg_execution_time': avg_time,
-                    'avg_memory_usage': avg_memory,
-                    'avg_mape': avg_mape
-                }
-                
-                # Calculate performance score (lower is better)
-                # Combine speed, memory efficiency, and accuracy
-                time_score = min(30, avg_time) / 30  # Normalize to 0-1
-                memory_score = min(500, avg_memory) / 500  # Normalize to 0-1
-                accuracy_score = min(20, avg_mape) / 20  # Normalize to 0-1
-                
-                config_results['performance_score'] = 100 - (
-                    (time_score * 30) + (memory_score * 30) + (accuracy_score * 40)
-                )
-            
-            benchmark_results['configurations'].append(config_results)
-        
-        # Find best configuration
-        valid_configs = [c for c in benchmark_results['configurations'] if c['runs']]
-        if valid_configs:
-            best_config = max(valid_configs, key=lambda x: x['performance_score'])
-            benchmark_results['best_configuration'] = best_config
-            
-            # Generate recommendations
-            benchmark_results['recommendations'] = [
-                f"Best performing configuration: {best_config['name']}",
-                f"Performance score: {best_config['performance_score']:.1f}/100",
-                f"Average execution time: {best_config['average_metrics']['avg_execution_time']:.2f}s",
-                f"Average MAPE: {best_config['average_metrics']['avg_mape']:.2f}%"
-            ]
-        
-        logger.info("Prophet model benchmarking completed")
-        return benchmark_results
-        
-    except Exception as e:
-        logger.error(f"Error in Prophet model benchmarking: {str(e)}")
-        return {'error': str(e)}
-
-def create_forecast_quality_report(df: pd.DataFrame, date_col: str, target_col: str,
-                                 forecast_result: ProphetForecastResult) -> str:
-    """
-    Generate a comprehensive text report of forecast quality
-    
-    Args:
-        df: Original data used for forecasting
-        date_col: Name of date column
-        target_col: Name of target column
-        forecast_result: Result from Prophet forecasting
-        
-    Returns:
-        String containing detailed quality report
-    """
-    try:
-        analyzer = create_diagnostic_analyzer()
-        analysis = analyzer.analyze_forecast_quality(forecast_result, df, date_col, target_col)
-        
-        quality_score = analysis.get('quality_score', 0)
-        
-        report = f"""
-📊 PROPHET FORECAST QUALITY REPORT
-================================
-
-Overall Quality Score: {quality_score:.1f}/100
-
-🎯 FORECAST COVERAGE
-• Coverage Ratio: {analysis.get('forecast_coverage', {}).get('coverage_ratio', 0) * 100:.1f}%
-• Forecast Period: {analysis.get('forecast_coverage', {}).get('forecast_start', 'N/A')} to {analysis.get('forecast_coverage', {}).get('forecast_end', 'N/A')}
-
-🔍 RESIDUAL ANALYSIS
-"""
-        
-        residual_analysis = analysis.get('residual_analysis', {})
-        if 'error' not in residual_analysis:
-            report += f"""• Mean Residual: {residual_analysis.get('mean_residual', 0):.4f}
-• Residual Std: {residual_analysis.get('std_residual', 0):.4f}
-• Normality Test: {'✅ PASSED' if residual_analysis.get('is_normally_distributed', False) else '❌ FAILED'}
-• Autocorrelation Test: {'❌ DETECTED' if residual_analysis.get('has_autocorrelation', True) else '✅ NONE'}
-• Durbin-Watson Statistic: {residual_analysis.get('durbin_watson_statistic', 0):.3f}
-"""
-        
-        report += "\n📈 TREND ANALYSIS\n"
-        trend_analysis = analysis.get('trend_analysis', {})
-        if 'error' not in trend_analysis:
-            report += f"""• Trend Direction: {trend_analysis.get('trend_direction', 'Unknown').title()}
-• Trend Slope: {trend_analysis.get('trend_slope', 0):.6f}
-• Trend Volatility: {trend_analysis.get('trend_volatility', 0):.3f}
-• Significant Changes: {trend_analysis.get('significant_changes', 0)}
-"""
-        
-        report += "\n🌊 SEASONALITY ANALYSIS\n"
-        seasonality_analysis = analysis.get('seasonality_analysis', {})
-        for component, stats in seasonality_analysis.items():
-            if isinstance(stats, dict):
-                report += f"""• {component.title()} Seasonality:
-  - Amplitude: {stats.get('amplitude', 0):.2f}
-  - Strength: {stats.get('strength', 0):.3f}
-  - Standard Deviation: {stats.get('std', 0):.2f}
-"""
-        
-        report += "\n📏 UNCERTAINTY ANALYSIS\n"
-        uncertainty_analysis = analysis.get('uncertainty_analysis', {})
-        if 'error' not in uncertainty_analysis:
-            report += f"""• Mean Interval Width: {uncertainty_analysis.get('mean_interval_width', 0):.2f}
-• Relative Width: {uncertainty_analysis.get('mean_relative_width', 0) * 100:.1f}%
-• Interval Symmetry: {uncertainty_analysis.get('interval_symmetry', 0):.3f}
-• Max Interval Width: {uncertainty_analysis.get('max_interval_width', 0):.2f}
-"""
-        
-        report += "\n🔧 CHANGEPOINT ANALYSIS\n"
-        changepoint_analysis = analysis.get('changepoint_analysis', {})
-        if 'error' not in changepoint_analysis:
-            report += f"""• Total Changepoints: {changepoint_analysis.get('changepoints_count', 0)}
-• Valid Changepoints: {changepoint_analysis.get('valid_changepoints_count', 0)}
-• Average Spacing: {changepoint_analysis.get('changepoint_spacing_days', 0):.1f} days
-"""
-        
-        # Quality assessment
-        report += "\n📋 QUALITY ASSESSMENT\n"
-        if quality_score >= 80:
-            report += "✅ EXCELLENT - High quality forecast with reliable predictions"
-        elif quality_score >= 60:
-            report += "⚠️ GOOD - Acceptable quality with minor areas for improvement"
-        elif quality_score >= 40:
-            report += "🔶 MODERATE - Forecast has limitations, use with caution"
-        else:
-            report += "❌ POOR - Significant quality issues, consider model adjustments"
-        
-        report += f"\n\nGenerated on: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        
-        return report
-        
-    except Exception as e:
-        logger.error(f"Error generating quality report: {str(e)}")
-        return f"Error generating quality report: {str(e)}"

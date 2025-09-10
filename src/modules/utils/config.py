@@ -14,6 +14,7 @@ DEFAULT_CI_LEVEL = 0.8
 # Mapping formati data
 DATE_FORMATS = {
     "aaaa-mm-gg": "%Y-%m-%d",
+    "aaaa-mm-gg HH:MM:SS": "%Y-%m-%d %H:%M:%S",
     "gg/mm/aaaa": "%d/%m/%Y", 
     "gg/mm/aa": "%d/%m/%y",
     "mm/gg/aaaa": "%m/%d/%Y",
@@ -85,14 +86,11 @@ PROPHET_DEFAULTS = {
     'changepoint_prior_scale': 0.05,
     'seasonality_prior_scale': 10.0,
     'interval_width': 0.8,
-    'uncertainty_samples': 1000,
     'daily_seasonality': 'auto',
     'weekly_seasonality': 'auto',
     'yearly_seasonality': 'auto',
     'growth': 'linear',
-    'mcmc_samples': 0,
     'holidays_country': None,
-    'custom_seasonalities': []
 }
 
 # Model labels and configurations
@@ -112,7 +110,6 @@ SARIMA_DEFAULTS = {
     'D': 1,
     'Q': 1,
     'seasonal_periods': 12,
-    'auto_tune': True
 }
 
 # ARIMA default parameters
@@ -120,7 +117,6 @@ ARIMA_DEFAULTS = {
     'p': 1,
     'd': 1,
     'q': 1,
-    'auto_tune': True
 }
 
 # Forecast default parameters
@@ -179,7 +175,6 @@ PARAMETER_TOOLTIPS = {
         'seasonality_mode': "Additive: constant seasonal amplitude; Multiplicative: seasonal amplitude scales with trend",
         'changepoint_prior_scale': "Controls trend flexibility. Higher values = more flexible trend, lower = more stable",
         'seasonality_prior_scale': "Controls seasonality strength. Higher values = stronger seasonal patterns",
-        'uncertainty_samples': "Number of samples for uncertainty estimation. More samples = more accurate intervals but slower computation"
     },
     'arima': {
         'p': "Autoregressive order: number of past observations to include in the model",

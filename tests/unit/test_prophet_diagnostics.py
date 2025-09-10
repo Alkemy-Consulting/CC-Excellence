@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 
-from modules.prophet_diagnostics import (
+from src.modules.forecasting.prophet_diagnostics import (
     ProphetDiagnosticConfig,
     ProphetDiagnosticAnalyzer, 
     ProphetDiagnosticPlots,

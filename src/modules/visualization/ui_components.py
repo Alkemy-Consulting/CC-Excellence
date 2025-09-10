@@ -25,52 +25,6 @@ except ImportError:
         with st.expander("⚙️ Prophet Configuration", expanded=False):
             config = {}
             
-            # Auto-tuning option
-            st.subheader("🤖 Auto-Tuning")
-            config['auto_tune'] = st.checkbox(
-                "Enable Auto-Tuning",
-                value=True,
-                help="Automatically optimize Prophet parameters using cross-validation"
-            )
-            
-            if config['auto_tune']:
-                st.info("🔍 Auto-tuning will optimize changepoint_prior_scale and seasonality_prior_scale")
-                
-                config['tuning_horizon'] = st.number_input(
-                    "Tuning Horizon (days)",
-                    min_value=7,
-                    max_value=90,
-                    value=30,
-                    help="Forecast horizon for parameter tuning"
-                )
-            
-            # Cross-Validation Settings
-            st.subheader("📊 Cross-Validation")
-            config['enable_cross_validation'] = st.checkbox(
-                "Enable Cross-Validation",
-                value=False,
-                help="Perform time series cross-validation for model assessment"
-            )
-            
-            if config['enable_cross_validation']:
-                col1, col2 = st.columns(2)
-                with col1:
-                    config['cv_horizon'] = st.slider(
-                        "CV Horizon (days)",
-                        min_value=7,
-                        max_value=60,
-                        value=30,
-                        help="Forecast horizon for each CV fold"
-                    )
-                with col2:
-                    config['cv_folds'] = st.slider(
-                        "Number of Folds",
-                        min_value=3,
-                        max_value=10,
-                        value=5,
-                        help="Number of cross-validation folds"
-                    )
-            
             # Holiday Effects
             st.subheader("🎉 Holiday Effects")
             config['add_holidays'] = st.checkbox(
@@ -87,10 +41,8 @@ except ImportError:
                     help="Country for holiday calendar"
                 )
             
-            # Core parameters - sempre visibili ma disabilitati quando auto è attivo
+            # Core parameters
             st.subheader("🔧 Core Parameters")
-            
-            is_disabled = config['auto_tune']
             
             config['changepoint_prior_scale'] = st.slider(
                 "Trend Flexibility",
@@ -99,7 +51,6 @@ except ImportError:
                 value=0.05,
                 step=0.001,
                 format="%.3f",
-                disabled=is_disabled,
                 help="Controls trend flexibility. Higher values = more flexible trend"
             )
             
@@ -109,7 +60,6 @@ except ImportError:
                 max_value=100.0,
                 value=10.0,
                 step=0.01,
-                disabled=is_disabled,
                 help="Controls seasonality strength. Higher values = stronger seasonality"
             )
             
@@ -117,18 +67,7 @@ except ImportError:
                 "Seasonality Mode",
                 ['additive', 'multiplicative'],
                 index=0,
-                disabled=is_disabled,
                 help="How seasonality affects the trend"
-            )
-            
-            config['uncertainty_samples'] = st.number_input(
-                "Uncertainty Samples",
-                min_value=100,
-                max_value=2000,
-                value=1000,
-                step=100,
-                disabled=is_disabled,
-                help="Number of samples for uncertainty estimation"
             )
             
             # Seasonality configuration
@@ -138,7 +77,6 @@ except ImportError:
                 "Yearly Seasonality",
                 ['auto', True, False],
                 index=0,
-                disabled=is_disabled,
                 help="Automatically detect or manually set yearly patterns"
             )
             
@@ -146,7 +84,6 @@ except ImportError:
                 "Weekly Seasonality", 
                 ['auto', True, False],
                 index=0,
-                disabled=is_disabled,
                 help="Automatically detect or manually set weekly patterns"
             )
             
@@ -154,7 +91,6 @@ except ImportError:
                 "Daily Seasonality",
                 ['auto', True, False],
                 index=0,
-                disabled=is_disabled,
                 help="Automatically detect or manually set daily patterns"
             )
             
@@ -198,7 +134,6 @@ except ImportError:
                 min_value=0,
                 max_value=10,
                 value=1,
-                disabled=is_disabled,
                 help="Autoregressive order - number of lag observations"
             )
             
@@ -207,7 +142,6 @@ except ImportError:
                 min_value=0,
                 max_value=5,
                 value=1,
-                disabled=is_disabled,
                 help="Degree of differencing to make series stationary"
             )
             
@@ -216,7 +150,6 @@ except ImportError:
                 min_value=0,
                 max_value=10,
                 value=1,
-                disabled=is_disabled,
                 help="Moving average order - size of moving average window"
             )
             
@@ -305,49 +238,37 @@ except ImportError:
             config['trend_type'] = st.selectbox("Trend Type", 
                                               options=['add', 'mul', None], 
                                               index=0,
-                                              disabled=is_disabled,
                                               help="Type of trend component")
             
             config['seasonal_type'] = st.selectbox("Seasonal Type", 
                                               options=['add', 'mul', None], 
                                               index=0,
-                                              disabled=is_disabled,
                                               help="Type of seasonal component")
             
             config['damped_trend'] = st.checkbox("Damped Trend", value=False,
-                                               disabled=is_disabled,
                                                help="Apply damping to trend component")
             
             config['seasonal_periods'] = int(st.number_input("Seasonal Periods", 
                                                            min_value=2, max_value=365, value=12,
-                                                           disabled=is_disabled,
                                                            help="Number of periods in seasonal cycle"))
             
             # Smoothing parameters - sempre visibili ma con logica migliorata
             st.markdown("**Smoothing Parameters**")
             
-            col1, col2, col3 = st.columns(3)
+            # Alpha (Level) - Prima riga
+            config['alpha'] = float(st.slider("Alpha (Level)", min_value=0.01, max_value=1.0, value=0.2, step=0.01, disabled=is_disabled))
+            if is_disabled:
+                config['alpha'] = None
             
-            with col1:
-                use_custom_alpha = st.checkbox("Custom Alpha (Level)", value=False, disabled=is_disabled)
-                if use_custom_alpha and not is_disabled:
-                    config['alpha'] = float(st.slider("Alpha", min_value=0.01, max_value=1.0, value=0.2, step=0.01))
-                else:
-                    config['alpha'] = None
+            # Beta (Trend) - Seconda riga
+            config['beta'] = float(st.slider("Beta (Trend)", min_value=0.01, max_value=1.0, value=0.1, step=0.01, disabled=is_disabled or not config['trend_type']))
+            if is_disabled or not config['trend_type']:
+                config['beta'] = None
             
-            with col2:
-                use_custom_beta = st.checkbox("Custom Beta (Trend)", value=False, disabled=is_disabled)
-                if use_custom_beta and not is_disabled and config['trend_type']:
-                    config['beta'] = float(st.slider("Beta", min_value=0.01, max_value=1.0, value=0.1, step=0.01))
-                else:
-                    config['beta'] = None
-            
-            with col3:
-                use_custom_gamma = st.checkbox("Custom Gamma (Seasonal)", value=False, disabled=is_disabled)
-                if use_custom_gamma and not is_disabled and config['seasonal_type']:
-                    config['gamma'] = float(st.slider("Gamma", min_value=0.01, max_value=1.0, value=0.1, step=0.01))
-                else:
-                    config['gamma'] = None
+            # Gamma (Seasonal) - Terza riga
+            config['gamma'] = float(st.slider("Gamma (Seasonal)", min_value=0.01, max_value=1.0, value=0.1, step=0.01, disabled=is_disabled or not config['seasonal_type']))
+            if is_disabled or not config['seasonal_type']:
+                config['gamma'] = None
                     
             if config['auto_holtwinters']:
                 # Auto configuration reminder
@@ -441,6 +362,25 @@ def render_data_upload_section() -> Tuple[Optional[pd.DataFrame], Optional[str],
                             df = pd.read_excel(uploaded_file)
 
                         st.success(f"✅ File loaded successfully: {len(df)} rows, {len(df.columns)} columns")
+
+                        # Robust datetime parsing for selected format and common columns
+                        try:
+                            if date_format == "%Y-%m-%d %H:%M:%S":
+                                # Attempt to parse common datetime columns
+                                candidate_cols = [c for c in df.columns if c.upper() in ["DATA_CHIAMATA", "DATETIME", "TIMESTAMP"]]
+                                for c in candidate_cols:
+                                    try:
+                                        df[c] = pd.to_datetime(df[c], format="%Y-%m-%d %H:%M:%S", errors="coerce")
+                                    except Exception:
+                                        pass
+                            # Example: handle DATA_CHIAMATA in format like 10Sep25:14:30:00
+                            if "DATA_CHIAMATA" in df.columns:
+                                try:
+                                    df["DATA_CHIAMATA"] = pd.to_datetime(df["DATA_CHIAMATA"], format="%d%b%y:%H:%M:%S", errors="ignore")
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
 
                         # Auto-detect date and target columns
                         detected_date, detected_target = auto_detect_columns(df)
@@ -1115,47 +1055,6 @@ def render_forecast_config_section() -> Dict[str, Any]:
     
     return config
 
-def render_output_config_section() -> Dict[str, Any]:
-    """
-    Renderizza la sezione per la configurazione dell'output del forecast
-    """
-    config = {
-        'show_components': True,
-        'plot_style': 'Detailed',
-        'export_format': ['CSV'],
-        'show_metrics': True
-    }
-    
-    with st.expander("📊 Output Configuration", expanded=False):
-        # Visualization options
-        config['show_components'] = st.checkbox(
-            "Show Forecast Components",
-            value=True,
-            help="Display trend, seasonal, and residual components"
-        )
-        
-        config['plot_style'] = st.selectbox(
-            "Plot Style",
-            ['Simple', 'Detailed', 'Compact'],
-            index=1,
-            help="Visual style for forecast plots"
-        )
-        
-        # Export options
-        config['export_format'] = st.multiselect(
-            "Export Format",
-            ['CSV', 'Excel', 'JSON'],
-            default=['CSV'],
-            help="Format for exporting forecast results"
-        )
-        
-        # Metrics display
-        config['show_metrics'] = st.checkbox(
-            "Show Performance Metrics",
-            value=True,
-            help="Display forecast accuracy metrics"
-        )
-        
-    return config
+# Output configuration section removed as requested
 
 
