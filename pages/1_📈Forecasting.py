@@ -127,9 +127,9 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
     
     # Get comprehensive statistics
     stats = get_data_statistics(df_clean, date_col, target_col)
-
     # Create tabs for organizing content
-    tab1, tab2, tab3 = st.tabs(["Data Series Analysis", "Forecasting Results", "Advanced Diagnostic"])
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["Data Series Analysis", "Forecasting Results", "Advanced Diagnostic", "Summary & Export"])
     
     with tab1:
         # Key Dataset Metrics in horizontal layout
@@ -757,10 +757,13 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
                         model_configs = {}
                     
                     # Prepare forecast configuration
+                    enable_backtesting = forecast_config.get('enable_backtesting', False)
+                    train_size = forecast_config.get('train_size', 1.0 if not enable_backtesting else 0.8)
                     base_config = {
                         'forecast_periods': forecast_config.get('forecast_periods', 30),
                         'confidence_interval': forecast_config.get('confidence_interval', 0.95),
-                        'train_size': 0.8
+                        'train_size': train_size,
+                        'enable_backtesting': enable_backtesting
                     }
                     
                     # Run forecast without extra header text
@@ -1585,6 +1588,280 @@ elif st.session_state.data_loaded and not st.session_state.get('forecast_results
             - **📋 Log Statistico**: Documentazione completa per tracciabilità
             
             **💡 Ogni sezione include suggerimenti pratici per utenti non esperti di forecasting!**
+            """)
+    
+    # ==================================================================================
+    # TAB 4: SUMMARY & EXPORT
+    # ==================================================================================
+    with tab4:
+        if st.session_state.get('forecast_results_available', False) and hasattr(st.session_state, 'last_forecast_df'):
+            st.markdown("## 📊 Summary & Export")
+            st.markdown("Aggregazione dei risultati per mese e settimana con opzioni di download per analisi successive.")
+            
+            # Import aggregation functions
+            from src.modules.utils.data_utils import (
+                aggregate_forecast_by_month, aggregate_forecast_by_week,
+                create_forecast_export_file
+            )
+            
+            # Helper function: Filter out incomplete periods and zero values
+            def filter_complete_periods(agg_df, period_col):
+                """
+                Filtra periodi parziali basandosi su colonna 'is_complete' calcolata in data_utils.
+                Mantiene solo righe dove:
+                - is_complete == True (periodi completi al 90%+ dei giorni attesi)
+                - Oppure è forecast futuro (Actual=0 ma Forecast>0)
+                Inoltre sostituisce 0 con NaN per non plottarli.
+                """
+                filtered_df = agg_df.copy()
+                
+                forecast_col = 'Forecast'
+                actual_col = 'Actual'
+                complete_col = 'is_complete'
+                
+                if forecast_col not in filtered_df.columns or actual_col not in filtered_df.columns:
+                    return filtered_df
+                
+                # Se colonna is_complete esiste, usala per filtrare
+                if complete_col in filtered_df.columns:
+                    # Mantieni righe dove:
+                    # 1. is_complete == True (periodo storico completo)
+                    # 2. Oppure Actual <= 0 e Forecast > 0 (forecast futuro legittimo)
+                    keep_mask = (filtered_df[complete_col] == True) | \
+                                ((filtered_df[actual_col] <= 0) & (filtered_df[forecast_col] > 0))
+                    filtered_df = filtered_df[keep_mask].copy()
+                    
+                    # Rimuovi colonne di supporto
+                    if 'DayCount' in filtered_df.columns:
+                        filtered_df = filtered_df.drop(columns=['DayCount', complete_col])
+                else:
+                    # Fallback: mantieni righe dove (Forecast > 0) OR (Actual > 0)
+                    keep_mask = (filtered_df[forecast_col] > 0) | (filtered_df[actual_col] > 0)
+                    filtered_df = filtered_df[keep_mask].copy()
+                
+                # Sostituisci 0 con NaN nelle colonne numeriche per non plottarle
+                numeric_cols = ['Forecast', 'Actual', 'Lower Bound', 'Upper Bound']
+                for col in numeric_cols:
+                    if col in filtered_df.columns:
+                        filtered_df[col] = filtered_df[col].replace(0, np.nan)
+                
+                return filtered_df if not filtered_df.empty else agg_df
+            
+            try:
+                # Get data from session state
+                forecast_df = st.session_state.last_forecast_df
+                cleaned_data = st.session_state.cleaned_data
+                date_col = st.session_state.date_col
+                target_col = st.session_state.target_col
+                
+                # Pre-compute all exports and cache in session state to prevent data loss on download
+                if 'summary_exports_cache' not in st.session_state:
+                    st.session_state.summary_exports_cache = {
+                        'monthly_agg': aggregate_forecast_by_month(forecast_df, cleaned_data, date_col, target_col),
+                        'weekly_agg': aggregate_forecast_by_week(forecast_df, cleaned_data, date_col, target_col),
+                        'forecast_csv': None
+                    }
+                
+                # Get cached exports
+                monthly_agg = st.session_state.summary_exports_cache['monthly_agg']
+                weekly_agg = st.session_state.summary_exports_cache['weekly_agg']
+                
+                # Apply filtering to remove incomplete periods and zeros
+                monthly_agg_filtered = filter_complete_periods(monthly_agg, 'Year-Month')
+                weekly_agg_filtered = filter_complete_periods(weekly_agg, 'Year-Week')
+                
+                # ===== SECTION 1: MONTHLY & WEEKLY AGGREGATION =====
+                
+                
+                # Limit periods for better readability
+                monthly_agg_display = monthly_agg_filtered.tail(24)  # Max 24 months
+                weekly_agg_display = weekly_agg_filtered.tail(56)    # Max 56 weeks
+                
+                # ===== MONTHLY CHART & TABLE =====
+                
+                
+                # Monthly Chart
+                fig_monthly = go.Figure()
+                fig_monthly.add_trace(go.Scatter(
+                    x=monthly_agg_display['Year-Month'],
+                    y=monthly_agg_display['Forecast'],
+                    mode='lines',
+                    name='Forecast',
+                    line=dict(color='#1f77b4', width=2.5, shape='spline'),
+                ))
+                
+                # Add actual if available
+                if 'Actual' in monthly_agg_display.columns and monthly_agg_display['Actual'].notna().any():
+                    fig_monthly.add_trace(go.Scatter(
+                        x=monthly_agg_display['Year-Month'],
+                        y=monthly_agg_display['Actual'],
+                        mode='lines',
+                        name='Actual',
+                        line=dict(color='#ff7f0e', width=2.5, shape='spline', dash='dash'),
+                    ))
+                
+                # Add confidence interval
+                fig_monthly.add_trace(go.Scatter(
+                    x=monthly_agg_display['Year-Month'],
+                    y=monthly_agg_display['Upper Bound'],
+                    fill=None,
+                    mode='lines',
+                    line_color='rgba(0,0,0,0)',
+                    showlegend=False
+                ))
+                fig_monthly.add_trace(go.Scatter(
+                    x=monthly_agg_display['Year-Month'],
+                    y=monthly_agg_display['Lower Bound'],
+                    fill='tonexty',
+                    mode='lines',
+                    line_color='rgba(0,0,0,0)',
+                    name='95% Confidence Interval',
+                    fillcolor='rgba(31, 119, 180, 0.2)'
+                ))
+                
+                fig_monthly.update_layout(
+                    title="Monthly Forecast vs Actual (Last 24 months)",
+                    xaxis_title="Month",
+                    yaxis_title="Volume",
+                    height=450,
+                    hovermode='x unified',
+                    template='plotly_white'
+                )
+                
+                st.plotly_chart(fig_monthly, use_container_width=True)
+                
+                # Monthly Table
+                st.markdown("**Dati Mensili Completi**")
+                st.dataframe(monthly_agg, use_container_width=True, hide_index=True)
+                
+                st.markdown("---")
+                
+                # ===== WEEKLY CHART & TABLE =====
+                
+                
+                # Weekly Chart
+                fig_weekly = go.Figure()
+                fig_weekly.add_trace(go.Scatter(
+                    x=weekly_agg_display['Year-Week'],
+                    y=weekly_agg_display['Forecast'],
+                    mode='lines',
+                    name='Forecast',
+                    line=dict(color='#2ca02c', width=2.5, shape='spline'),
+                ))
+                
+                # Add actual if available
+                if 'Actual' in weekly_agg_display.columns and weekly_agg_display['Actual'].notna().any():
+                    fig_weekly.add_trace(go.Scatter(
+                        x=weekly_agg_display['Year-Week'],
+                        y=weekly_agg_display['Actual'],
+                        mode='lines',
+                        name='Actual',
+                        line=dict(color='#d62728', width=2.5, shape='spline', dash='dash'),
+                    ))
+                
+                # Add confidence interval
+                fig_weekly.add_trace(go.Scatter(
+                    x=weekly_agg_display['Year-Week'],
+                    y=weekly_agg_display['Upper Bound'],
+                    fill=None,
+                    mode='lines',
+                    line_color='rgba(0,0,0,0)',
+                    showlegend=False
+                ))
+                fig_weekly.add_trace(go.Scatter(
+                    x=weekly_agg_display['Year-Week'],
+                    y=weekly_agg_display['Lower Bound'],
+                    fill='tonexty',
+                    mode='lines',
+                    line_color='rgba(0,0,0,0)',
+                    name='95% Confidence Interval',
+                    fillcolor='rgba(44, 160, 44, 0.2)'
+                ))
+                
+                fig_weekly.update_layout(
+                    title="Weekly Forecast vs Actual (Last 56 weeks)",
+                    xaxis_title="Week",
+                    yaxis_title="Volume",
+                    height=450,
+                    hovermode='x unified',
+                    template='plotly_white'
+                )
+                
+                st.plotly_chart(fig_weekly, use_container_width=True)
+                
+                # Weekly Table
+                st.markdown("**Dati Settimanali Completi**")
+                st.dataframe(weekly_agg, use_container_width=True, hide_index=True)
+                
+                st.markdown("---")
+                
+                # ===== SECTION 2: DOWNLOAD OPTIONS =====
+                st.markdown("### 📥 Download Dati")
+                
+                st.markdown("#### 📊 Serie Storica Completa")
+                st.write("Scarica la serie di forecast completa con intervalli di confidenza.")
+                
+                try:
+                    # Compute forecast export if not cached
+                    if st.session_state.summary_exports_cache['forecast_csv'] is None:
+                        st.session_state.summary_exports_cache['forecast_csv'] = create_forecast_export_file(forecast_df)
+                    
+                    st.download_button(
+                        label="📥 Download Forecast (CSV)",
+                        data=st.session_state.summary_exports_cache['forecast_csv'],
+                        file_name=f"forecast_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        key="download_forecast"
+                    )
+                except Exception as e:
+                    st.error(f"Errore nel download forecast: {str(e)}")
+                
+                st.markdown("---")
+                
+                col_agg1, col_agg2 = st.columns(2)
+                
+                with col_agg1:
+                    st.markdown("#### 📆 Aggregazione Mensile (CSV)")
+                    monthly_csv = monthly_agg.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Download Dati Mensili (CSV)",
+                        data=monthly_csv,
+                        file_name=f"aggregation_monthly_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        key="download_monthly"
+                    )
+                
+                with col_agg2:
+                    st.markdown("#### 📊 Aggregazione Settimanale (CSV)")
+                    weekly_csv = weekly_agg.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Download Dati Settimanali (CSV)",
+                        data=weekly_csv,
+                        file_name=f"aggregation_weekly_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        key="download_weekly"
+                    )
+                
+                st.success("✅ Tutti i dati sono pronti per il download!")
+                
+            except Exception as e:
+                st.error(f"❌ Errore nel tab Summary & Export: {str(e)}")
+                st.info("💡 Assicurati di aver completato un forecast prima di accedere a questa sezione.")
+        
+        else:
+            st.info("🔄 Summary & Export disponibile dopo l'esecuzione del forecasting.")
+            st.markdown("""
+            ### 📊 Cosa troverai qui dopo l'esecuzione del forecast:
+            
+            - **📆 Aggregazione Mensile**: Grafico e tabella con forecast vs consuntivo mensile
+            - **📊 Aggregazione Settimanale**: Grafico e tabella con forecast vs consuntivo settimanale
+            - **⏰ Matrice Slot 30min**: Media volumi per slot orario e giorno della settimana
+            - **📥 Download Dati**: 
+              - Serie storica completa con upper/lower bounds
+              - Matrice slot 30min x giorni della settimana
+              - Aggregazioni mensili e settimanali
+            
+            **💡 Tutte le tabelle e i grafici sono visualizzati contemporaneamente senza sovrascritture!**
             """)
 if st.session_state.data_loaded and st.session_state.get('forecast_results_available', False):
     # Reset options and navigation - ENHANCED USER CONTROL

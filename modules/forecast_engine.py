@@ -264,6 +264,8 @@ def display_forecast_results(model_name: str, forecast_df: pd.DataFrame, metrics
         st.session_state.last_forecast_df = forecast_df
         st.session_state.last_model_name = model_name
         st.session_state.last_forecast_plots = plots
+        # Reset cached summary exports to ensure fresh aggregations for new forecasts
+        st.session_state.pop('summary_exports_cache', None)
         
         # Display metrics with scientific rigor - 2 decimal places for all forecast metrics
         col1, col2, col3, col4 = st.columns(4)

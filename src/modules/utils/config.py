@@ -7,7 +7,7 @@ from typing import Dict, List, Any
 import pandas as pd
 
 # Configurazioni generali
-DEFAULT_HORIZON = 30
+DEFAULT_HORIZON = 90  # Default 3 months - will be calculated dynamically based on data length
 MIN_DATA_POINTS = 20
 DEFAULT_CI_LEVEL = 0.8
 

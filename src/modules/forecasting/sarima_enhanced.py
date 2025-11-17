@@ -351,6 +351,9 @@ class SARIMAEnhanced:
                 'yhat_upper': conf_int.iloc[:, 1].values
             })
             
+            # Add is_forecast column to distinguish future predictions from historical data
+            forecast_df['is_forecast'] = True
+            
             self.forecast_result = forecast_df
             return forecast_df
             

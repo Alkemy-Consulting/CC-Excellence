@@ -843,21 +843,79 @@ def render_forecast_horizon_section(df: pd.DataFrame, date_col: str,
 
 def render_forecast_config_section() -> Dict[str, Any]:
     """
-    Renderizza la sezione per la configurazione del forecast
+    Renderizza la sezione per la configurazione del forecast con Forecast Horizon intelligente
     """
     st.header("5. Forecast Settings")
     
     with st.expander("⚙️ Forecast Parameters", expanded=False):
         config = {}
         
-        # Forecast horizon
-        config['horizon'] = st.number_input(
-            "Forecast Horizon",
-            min_value=1,
-            max_value=365,
-            value=DEFAULT_HORIZON,
-            help="Number of future periods to forecast"
+        # ===== FORECAST HORIZON - INTELLIGENT CALCULATION =====
+        # Calculate intelligent defaults based on data length
+        if 'cleaned_data' in st.session_state and st.session_state.cleaned_data is not None:
+            hist_data_len = len(st.session_state.cleaned_data)
+            date_col = st.session_state.date_col
+            
+            # Get last date of available data
+            last_date = pd.to_datetime(st.session_state.cleaned_data[date_col]).max()
+            first_date = pd.to_datetime(st.session_state.cleaned_data[date_col]).min()
+            data_range_days = (last_date - first_date).days
+            
+            # Best practice: forecast horizon = 1/3 of historical data length
+            # But minimum 30 days, maximum 1 year
+            intelligent_default = max(30, min(365, hist_data_len // 3))
+            max_possible_horizon = max(180, hist_data_len)  # At least 180 days, or full data length
+            
+            st.info(f"📊 **Data Summary**: {hist_data_len} records from {first_date.date()} to {last_date.date()} ({data_range_days} days)")
+        else:
+            intelligent_default = DEFAULT_HORIZON
+            max_possible_horizon = 365
+            last_date = None
+        
+        # Forecast horizon selection method
+        st.markdown("**Forecast Horizon Configuration**")
+        
+        horizon_method = st.radio(
+            "Select Method",
+            ["Days Ahead", "Until Date"],
+            help="Choose how to specify the forecast horizon from the last available data point"
         )
+        
+        if horizon_method == "Days Ahead":
+            config['forecast_periods'] = st.number_input(
+                "Days to Forecast",
+                min_value=1,
+                max_value=max_possible_horizon,
+                value=intelligent_default,
+                step=7,
+                help=f"Number of days to forecast starting from the last data point ({last_date.date() if last_date else 'N/A'}). \n"
+                     f"Suggested: ~1/3 of historical data ({intelligent_default} days) for best accuracy."
+            )
+        else:  # Until Date
+            if last_date:
+                suggested_end_date = last_date + pd.Timedelta(days=intelligent_default)
+                min_end_date = last_date + pd.Timedelta(days=1)
+            else:
+                suggested_end_date = pd.Timestamp.now() + pd.Timedelta(days=intelligent_default)
+                min_end_date = pd.Timestamp.now() + pd.Timedelta(days=1)
+            
+            end_date = st.date_input(
+                "Forecast Until",
+                value=suggested_end_date,
+                min_value=min_end_date,
+                help="Specify the end date for forecast. Starting point is the last available data."
+            )
+            
+            # Calculate days from last_date
+            days_diff = (pd.Timestamp(end_date) - last_date).days if last_date else (pd.Timestamp(end_date) - pd.Timestamp.now()).days
+            config['forecast_periods'] = max(1, days_diff)
+        
+        # Display confirmation
+        if last_date:
+            forecast_end_date = last_date + pd.Timedelta(days=config['forecast_periods'])
+            st.success(f"✅ **Forecast Horizon**: {config['forecast_periods']} days | From: {last_date.date()} | To: {forecast_end_date.date()}")
+        else:
+            st.success(f"✅ **Forecast Horizon**: {config['forecast_periods']} days")
         
         # Frequency
         config['frequency'] = st.selectbox(
@@ -1052,6 +1110,14 @@ def render_forecast_config_section() -> Dict[str, Any]:
                     default=['Predictions vs Actuals', 'Residuals'],
                     help="Types of backtesting plots to show"
                 )
+        else:
+            # When backtesting is disabled use full history and skip advanced options
+            config['train_size'] = 1.0
+            config['enable_cross_validation'] = False
+            config['backtest_strategy'] = None
+            config['enable_ensemble'] = False
+            config['set_performance_thresholds'] = False
+            config['show_backtest_plots'] = False
     
     return config
 

@@ -569,7 +569,27 @@ def run_prophet_forecast(df: pd.DataFrame, date_col: str, target_col: str,
             forecast_output = result.raw_forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
             forecast_output.columns = [date_col, f'{target_col}_forecast', f'{target_col}_lower', f'{target_col}_upper']
             
+            # CRITICAL: Add is_forecast column to distinguish future predictions from historical data
+            last_actual_date = pd.to_datetime(df[date_col]).max()
+            forecast_output['is_forecast'] = pd.to_datetime(forecast_output[date_col]) > last_actual_date
+            
+            # Add actual values column for historical period (for comparison)
+            forecast_output[target_col] = None
+            historical_mask = ~forecast_output['is_forecast']
+            if historical_mask.any():
+                # Merge actual values for historical period
+                df_historical = df[[date_col, target_col]].copy()
+                df_historical[date_col] = pd.to_datetime(df_historical[date_col])
+                forecast_output[date_col] = pd.to_datetime(forecast_output[date_col])
+                forecast_output = forecast_output.merge(
+                    df_historical, on=date_col, how='left', suffixes=('', '_actual')
+                )
+                if f'{target_col}_actual' in forecast_output.columns:
+                    forecast_output[target_col] = forecast_output[f'{target_col}_actual']
+                    forecast_output.drop(columns=[f'{target_col}_actual'], inplace=True)
+            
             logger.info(f"Unified Prophet forecast completed successfully - Output shape: {forecast_output.shape}")
+            logger.info(f"Historical periods: {(~forecast_output['is_forecast']).sum()}, Future periods: {forecast_output['is_forecast'].sum()}")
             return forecast_output, result.metrics, plots
             
         else:
@@ -596,7 +616,7 @@ def create_prophet_plots(result: ProphetForecastResult, df: pd.DataFrame,
         # Main forecast plot
         fig = go.Figure()
         
-        # Historical data (torna al colore blu originale)
+        # Historical actual data (blue line)
         fig.add_trace(go.Scatter(
             x=df[date_col],
             y=df[target_col],
@@ -605,7 +625,7 @@ def create_prophet_plots(result: ProphetForecastResult, df: pd.DataFrame,
             line=dict(color='blue', width=2)
         ))
         
-        # Forecast completo (come era originalmente ma con logica corretta)
+        # Forecast completo (storico + futuro) come trendline rossa
         forecast = result.raw_forecast
         fig.add_trace(go.Scatter(
             x=forecast['ds'],
@@ -615,7 +635,7 @@ def create_prophet_plots(result: ProphetForecastResult, df: pd.DataFrame,
             line=dict(color='red', width=2)
         ))
         
-        # Confidence intervals (torna all'originale)
+        # Confidence intervals (intero range come in precedenza)
         fig.add_trace(go.Scatter(
             x=forecast['ds'],
             y=forecast['yhat_upper'],

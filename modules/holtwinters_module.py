@@ -582,6 +582,9 @@ class HoltWintersCorrected:
                 'yhat_upper': upper_bound
             })
             
+            # Add is_forecast column to distinguish future predictions from historical data
+            forecast_df['is_forecast'] = True
+            
             self.forecast_result = forecast_df
             return forecast_df
             

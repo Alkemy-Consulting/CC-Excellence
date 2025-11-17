@@ -840,6 +840,12 @@ def run_arima_forecast(df: pd.DataFrame, date_col: str, target_col: str,
             'upper_bound': upper_bound
         })
         
+        # Add is_forecast column to distinguish future predictions from historical data
+        forecast_df['is_forecast'] = True
+        
+        # Add actual values column (None for future periods)
+        forecast_df[target_col] = None
+        
         # Calcola metriche sui dati di training
         fitted_values = fitted_model.fittedvalues
         

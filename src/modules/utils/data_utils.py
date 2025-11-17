@@ -812,3 +812,253 @@ def parse_manual_holidays(holiday_text: str) -> pd.DataFrame:
             continue
     
     return pd.DataFrame(holidays_list)
+
+
+# ============================================================================
+# AGGREGATION FUNCTIONS FOR SUMMARY & EXPORT TAB
+# ============================================================================
+
+def _identify_forecast_columns(forecast_df: pd.DataFrame) -> Tuple[str, str, Optional[str], Optional[str]]:
+    """
+    Identifica le colonne di data, forecast, lower, upper dal DataFrame
+    Gestisce diversi formati di output dai vari modelli
+    
+    Returns:
+        Tuple: (date_col, forecast_col, lower_col, upper_col)
+    """
+    # Cerca colonna data
+    date_col = None
+    for col in ['ds', 'date', 'Date']:
+        if col in forecast_df.columns:
+            date_col = col
+            break
+    
+    if date_col is None:
+        # Prova a trovare una colonna datetime
+        for col in forecast_df.columns:
+            if forecast_df[col].dtype == 'datetime64[ns]':
+                date_col = col
+                break
+    
+    if date_col is None:
+        raise ValueError(f"Colonna data non trovata. Colonne disponibili: {list(forecast_df.columns)}")
+    
+    # Cerca colonna forecast (yhat, forecast, _forecast)
+    forecast_col = None
+    for col in forecast_df.columns:
+        if 'yhat' in col and 'lower' not in col and 'upper' not in col:
+            forecast_col = col
+            break
+    
+    if forecast_col is None:
+        for col in forecast_df.columns:
+            if 'forecast' in col.lower() and 'lower' not in col and 'upper' not in col:
+                forecast_col = col
+                break
+    
+    if forecast_col is None:
+        raise ValueError(f"Colonna forecast non trovata. Colonne disponibili: {list(forecast_df.columns)}")
+    
+    # Cerca colonne lower e upper
+    lower_col = None
+    upper_col = None
+    
+    for col in forecast_df.columns:
+        if 'lower' in col.lower():
+            lower_col = col
+        elif 'upper' in col.lower():
+            upper_col = col
+    
+    return date_col, forecast_col, lower_col, upper_col
+
+
+def aggregate_forecast_by_month(forecast_df: pd.DataFrame, historical_df: pd.DataFrame, 
+                               date_col: str, target_col: str) -> pd.DataFrame:
+    """
+    Aggrega forecast e consuntivo per mese con la vista completa (storico + futuro).
+    Aggiunge colonna 'is_complete' per rilevare periodi parziali.
+    """
+    import calendar
+    
+    try:
+        forecast_date_col, forecast_col, lower_col, upper_col = _identify_forecast_columns(forecast_df)
+        forecast_df_copy = forecast_df.copy()
+        forecast_df_copy[forecast_date_col] = pd.to_datetime(forecast_df_copy[forecast_date_col])
+        forecast_df_copy['year_month'] = forecast_df_copy[forecast_date_col].dt.to_period('M')
+
+        agg_dict = {forecast_col: 'sum'}
+        if lower_col and lower_col in forecast_df_copy.columns:
+            agg_dict[lower_col] = 'sum'
+        if upper_col and upper_col in forecast_df_copy.columns:
+            agg_dict[upper_col] = 'sum'
+        forecast_monthly = forecast_df_copy.groupby('year_month').agg(agg_dict).reset_index()
+        forecast_monthly['year_month'] = forecast_monthly['year_month'].astype(str)
+
+        historical_df_copy = historical_df.copy()
+        historical_df_copy[date_col] = pd.to_datetime(historical_df_copy[date_col])
+        historical_df_copy['year_month'] = historical_df_copy[date_col].dt.to_period('M')
+        
+        # Calcola conteggi di giorni effettivi per ogni mese storico
+        historical_counts = historical_df_copy.groupby('year_month').size().reset_index(name='day_count')
+        historical_counts['year_month'] = historical_counts['year_month'].astype(str)
+        
+        historical_monthly = historical_df_copy.groupby('year_month')[target_col].sum().reset_index()
+        historical_monthly['year_month'] = historical_monthly['year_month'].astype(str)
+        historical_monthly.rename(columns={target_col: 'actual'}, inplace=True)
+        
+        # Merge con i conteggi di giorni
+        historical_monthly = historical_monthly.merge(historical_counts, on='year_month', how='left')
+
+        result = forecast_monthly.merge(historical_monthly, on='year_month', how='outer')
+        new_columns = ['Year-Month', 'Forecast']
+        if lower_col:
+            new_columns.append('Lower Bound')
+        if upper_col:
+            new_columns.append('Upper Bound')
+        new_columns.append('Actual')
+        new_columns.append('DayCount')  # Aggiungi colonna conteggio giorni
+        result.columns = new_columns
+        result = result.sort_values('Year-Month').reset_index(drop=True)
+
+        # Calcola completezza del mese (soglia 90%)
+        # Un mese è completo se ha almeno 90% dei giorni attesi
+        result['is_complete'] = True
+        COMPLETENESS_THRESHOLD = 0.9
+        
+        for idx, row in result.iterrows():
+            year_month_str = row['Year-Month']
+            try:
+                year, month = map(int, year_month_str.split('-'))
+                _, days_in_month = calendar.monthrange(year, month)
+                day_count = row.get('DayCount', 0)
+                
+                # Se day_count < threshold * days_in_month, mese parziale
+                if pd.notna(day_count) and day_count > 0:
+                    if day_count < COMPLETENESS_THRESHOLD * days_in_month:
+                        result.at[idx, 'is_complete'] = False
+                else:
+                    # Se nessun actual (forecast-only), consideralo completo (è futuro)
+                    result.at[idx, 'is_complete'] = True
+            except:
+                result.at[idx, 'is_complete'] = True
+
+        numeric_cols = [col for col in result.columns if col not in ['Year-Month', 'is_complete', 'DayCount']]
+        for col in numeric_cols:
+            result[col] = result[col].fillna(0).round(2)
+
+        return result
+    except Exception as e:
+        raise ValueError(f"Errore in aggregate_forecast_by_month: {str(e)}")
+
+
+def aggregate_forecast_by_week(forecast_df: pd.DataFrame, historical_df: pd.DataFrame,
+                              date_col: str, target_col: str) -> pd.DataFrame:
+    """
+    Aggrega forecast e consuntivo per settimana con la vista completa (storico + futuro).
+    Aggiunge colonna 'is_complete' per rilevare settimane parziali.
+    """
+    try:
+        forecast_date_col, forecast_col, lower_col, upper_col = _identify_forecast_columns(forecast_df)
+        forecast_df_copy = forecast_df.copy()
+        forecast_df_copy[forecast_date_col] = pd.to_datetime(forecast_df_copy[forecast_date_col])
+        forecast_df_copy['year_week'] = forecast_df_copy[forecast_date_col].dt.strftime('%Y-W%V')
+
+        agg_dict = {forecast_col: 'sum'}
+        if lower_col and lower_col in forecast_df_copy.columns:
+            agg_dict[lower_col] = 'sum'
+        if upper_col and upper_col in forecast_df_copy.columns:
+            agg_dict[upper_col] = 'sum'
+        forecast_weekly = forecast_df_copy.groupby('year_week').agg(agg_dict).reset_index()
+
+        historical_df_copy = historical_df.copy()
+        historical_df_copy[date_col] = pd.to_datetime(historical_df_copy[date_col])
+        historical_df_copy['year_week'] = historical_df_copy[date_col].dt.strftime('%Y-W%V')
+        
+        # Calcola conteggi di giorni effettivi per ogni settimana storica
+        historical_counts = historical_df_copy.groupby('year_week').size().reset_index(name='day_count')
+        
+        historical_weekly = historical_df_copy.groupby('year_week')[target_col].sum().reset_index()
+        historical_weekly.rename(columns={target_col: 'actual'}, inplace=True)
+        
+        # Merge con i conteggi di giorni
+        historical_weekly = historical_weekly.merge(historical_counts, on='year_week', how='left')
+
+        result = forecast_weekly.merge(historical_weekly, on='year_week', how='outer')
+        new_columns = ['Year-Week', 'Forecast']
+        if lower_col:
+            new_columns.append('Lower Bound')
+        if upper_col:
+            new_columns.append('Upper Bound')
+        new_columns.append('Actual')
+        new_columns.append('DayCount')  # Aggiungi colonna conteggio giorni
+        result.columns = new_columns
+        result = result.sort_values('Year-Week').reset_index(drop=True)
+
+        # Calcola completezza della settimana (soglia 90%)
+        # Una settimana è completa se ha almeno 90% di 7 giorni = 6.3 giorni (arrotondato a 6)
+        result['is_complete'] = True
+        COMPLETENESS_THRESHOLD = 0.9
+        EXPECTED_DAYS_PER_WEEK = 7
+        
+        for idx, row in result.iterrows():
+            day_count = row.get('DayCount', 0)
+            
+            # Se day_count < threshold * 7, settimana parziale
+            if pd.notna(day_count) and day_count > 0:
+                if day_count < COMPLETENESS_THRESHOLD * EXPECTED_DAYS_PER_WEEK:
+                    result.at[idx, 'is_complete'] = False
+            else:
+                # Se nessun actual (forecast-only), consideralo completo (è futuro)
+                result.at[idx, 'is_complete'] = True
+
+        numeric_cols = [col for col in result.columns if col not in ['Year-Week', 'is_complete', 'DayCount']]
+        for col in numeric_cols:
+            result[col] = result[col].fillna(0).round(2)
+
+        return result
+    except Exception as e:
+        raise ValueError(f"Errore in aggregate_forecast_by_week: {str(e)}")
+
+
+def create_forecast_export_file(forecast_df: pd.DataFrame, filename_prefix: str = "forecast") -> bytes:
+    """
+    Crea un file CSV con la serie completa di forecast con upper/lower bounds
+    
+    Args:
+        forecast_df: DataFrame con previsioni
+        filename_prefix: Prefisso per il nome file
+        
+    Returns:
+        bytes: Contenuto del file
+    """
+    try:
+        forecast_date_col, forecast_col, lower_col, upper_col = _identify_forecast_columns(forecast_df)
+        
+        export_df = forecast_df.copy()
+        export_df[forecast_date_col] = pd.to_datetime(export_df[forecast_date_col])
+        export_df = export_df.sort_values(forecast_date_col)
+        
+        # Seleziona colonne principali
+        columns_to_export = [forecast_date_col, forecast_col]
+        if lower_col and lower_col in export_df.columns:
+            columns_to_export.append(lower_col)
+        if upper_col and upper_col in export_df.columns:
+            columns_to_export.append(upper_col)
+        
+        export_df = export_df[columns_to_export]
+        
+        # Rinomina per leggibilità
+        new_column_names = ['Date', 'Forecast']
+        if lower_col:
+            new_column_names.append('Lower Bound')
+        if upper_col:
+            new_column_names.append('Upper Bound')
+        
+        export_df.columns = new_column_names
+        export_df = export_df.round(2)
+        
+        # Converti in CSV
+        return export_df.to_csv(index=False).encode('utf-8')
+    
+    except Exception as e:
+        raise ValueError(f"Errore in create_forecast_export_file: {str(e)}")
