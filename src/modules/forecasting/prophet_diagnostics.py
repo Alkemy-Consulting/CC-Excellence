@@ -15,7 +15,8 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
-from .prophet_core import ProphetForecastResult
+# Import ProphetForecastResult from the active prophet_module implementation
+from modules.prophet_module import ProphetForecastResult
 
 logger = logging.getLogger(__name__)
 
