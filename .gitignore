@@ -87,6 +87,9 @@ data/confidential/
 .coverage
 htmlcov/
 .tox/
+coverage.xml
+tests/coverage.xml
+tests/reports/
 
 # Documentation builds
 docs/_build/
