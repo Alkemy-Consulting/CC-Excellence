@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test specifico della funzione create_prophet_plots
+Specific test for the create_prophet_plots function
 """
 
 import sys
@@ -11,7 +11,7 @@ warnings.filterwarnings('ignore')
 
 sys.path.append('/workspaces/CC-Excellence')
 
-print("🔍 TEST SPECIFICO: create_prophet_plots")
+print("🔍 SPECIFIC TEST: create_prophet_plots")
 print("=" * 60)
 
 # Load test data
@@ -96,7 +96,9 @@ try:
 except Exception as e:
     print(f"❌ Overall error: {e}")
     traceback.print_exc()
+    sys.exit(1)
 
 print("\n" + "=" * 60)
-print("🎯 TEST SPECIFICO COMPLETE")
+print("🎯 SPECIFIC TEST COMPLETE")
 print("=" * 60)
+sys.exit(0)
