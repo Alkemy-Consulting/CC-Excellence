@@ -8,13 +8,11 @@ from typing import Dict, List, Tuple, Optional, Any
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import plotly.express as px
 from plotly.subplots import make_subplots
 import streamlit as st
 import warnings
 import logging
 import hashlib
-from functools import lru_cache
 from prophet import Prophet
 from datetime import datetime, timedelta
 from dataclasses import dataclass
@@ -217,7 +215,6 @@ class ProphetForecaster:
             logger.info(f"  - {key}: {value}")
         
         # Add hash of parameters for debugging different configurations
-        import hashlib
         params_str = str(sorted(prophet_params.items()))
         params_hash = hashlib.md5(params_str.encode()).hexdigest()[:8]
         logger.info(f"Configuration hash: {params_hash}")
