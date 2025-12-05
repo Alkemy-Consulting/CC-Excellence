@@ -17,10 +17,10 @@ from ..utils.config import SUPPORTED_HOLIDAY_COUNTRIES
 from ..utils.data_utils import get_holidays_for_country, parse_manual_holidays
 
 # Import model configuration functions
-from ...prophet_module import render_prophet_config
+from modules.prophet_module import render_prophet_config
 
 try:
-    from ...arima_module import render_arima_config
+    from modules.arima_module import render_arima_config
 except ImportError:
     def render_arima_config():
         """Renderizza i parametri di configurazione per ARIMA"""
@@ -129,7 +129,7 @@ except ImportError:
             return config
 
 try:
-    from ...holtwinters_module import render_holtwinters_config
+    from modules.holtwinters_module import render_holtwinters_config
 except ImportError:
     def render_holtwinters_config():
         """Render Holt-Winters configuration with proper type conversion"""
