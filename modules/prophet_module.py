@@ -8,13 +8,11 @@ from typing import Dict, List, Tuple, Optional, Any
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import plotly.express as px
 from plotly.subplots import make_subplots
 import streamlit as st
 import warnings
 import logging
 import hashlib
-from functools import lru_cache
 from prophet import Prophet
 from datetime import datetime, timedelta
 from dataclasses import dataclass
@@ -217,7 +215,6 @@ class ProphetForecaster:
             logger.info(f"  - {key}: {value}")
         
         # Add hash of parameters for debugging different configurations
-        import hashlib
         params_str = str(sorted(prophet_params.items()))
         params_hash = hashlib.md5(params_str.encode()).hexdigest()[:8]
         logger.info(f"Configuration hash: {params_hash}")
@@ -824,22 +821,6 @@ def run_prophet_diagnostics(df: pd.DataFrame, date_col: str, target_col: str,
     return diagnostic_results
 
 # Legacy function for backward compatibility
-def run_prophet_forecast_legacy(df: pd.DataFrame, date_col: str, target_col: str, 
-                        model_config: dict, base_config: dict):
-    """
-    Legacy Prophet forecast implementation - converts base_config to forecast_config
-    """
-    logger.warning("Legacy Prophet forecast called - converting base_config to forecast_config")
-    # Convert old base_config format to new forecast_config format
-    forecast_config = {
-        'forecast_periods': base_config.get('forecast_periods', 30),  # Keep original name
-        'horizon': base_config.get('forecast_periods', 30),          # Add for compatibility
-        'confidence_level': base_config.get('confidence_interval', 0.95),
-        'train_size': base_config.get('train_size', 0.8),
-        'enable_cross_validation': False
-    }
-    return run_prophet_forecast(df, date_col, target_col, model_config, forecast_config)
-
 # Factory function for easy instantiation
 def create_prophet_forecaster() -> ProphetForecaster:
     """Factory function to create ProphetForecaster instance"""

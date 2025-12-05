@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test specifico della funzione create_prophet_forecast_chart
+Specific test for the create_prophet_plots function
 """
 
 import sys
@@ -11,7 +11,7 @@ warnings.filterwarnings('ignore')
 
 sys.path.append('/workspaces/CC-Excellence')
 
-print("🔍 TEST SPECIFICO: create_prophet_forecast_chart")
+print("🔍 SPECIFIC TEST: create_prophet_plots")
 print("=" * 60)
 
 # Load test data
@@ -20,7 +20,7 @@ df['date'] = pd.to_datetime(df['date'])
 df['value'] = pd.to_numeric(df['value'])
 
 try:
-    from modules.prophet_module import create_prophet_forecast_chart
+    from modules.prophet_module import create_prophet_plots, ProphetForecastResult
     from prophet import Prophet
     
     # Create Prophet model
@@ -45,26 +45,34 @@ try:
     print(f"Forecast shape: {forecast.shape}")
     print(f"Forecast columns: {list(forecast.columns)}")
     
+    # Create ProphetForecastResult for the new function signature
+    result = ProphetForecastResult(
+        success=True,
+        error=None,
+        model=model,
+        raw_forecast=forecast,
+        metrics={'mae': 0, 'mape': 0, 'rmse': 0}  # Dummy metrics
+    )
+    
     # Now test our function
-    print("\n📊 Testing create_prophet_forecast_chart...")
+    print("\n📊 Testing create_prophet_plots...")
     try:
-        chart = create_prophet_forecast_chart(
-            model=model,
-            forecast_df=forecast,
-            actual_data=df,
+        plots = create_prophet_plots(
+            result=result,
+            df=df,
             date_col='date',
-            target_col='value',
-            confidence_interval=0.95
+            target_col='value'
         )
         
-        if chart is not None:
-            print("✅ Chart created successfully!")
-            print(f"Chart type: {type(chart)}")
+        if plots is not None:
+            print("✅ Plots created successfully!")
+            print(f"Plots type: {type(plots)}")
+            print(f"Plots keys: {list(plots.keys()) if isinstance(plots, dict) else 'Not a dict'}")
         else:
-            print("❌ Chart is None - function returned None due to error")
+            print("❌ Plots is None - function returned None due to error")
             
     except Exception as e:
-        print(f"❌ Chart creation error: {e}")
+        print(f"❌ Plot creation error: {e}")
         print(f"Error type: {type(e).__name__}")
         traceback.print_exc()
         
@@ -88,7 +96,9 @@ try:
 except Exception as e:
     print(f"❌ Overall error: {e}")
     traceback.print_exc()
+    sys.exit(1)
 
 print("\n" + "=" * 60)
-print("🎯 TEST SPECIFICO COMPLETE")
+print("🎯 SPECIFIC TEST COMPLETE")
 print("=" * 60)
+sys.exit(0)

@@ -17,7 +17,8 @@ from src.modules.forecasting.prophet_diagnostics import (
     create_diagnostic_analyzer,
     create_diagnostic_plots
 )
-from modules.prophet_core import ProphetForecastResult
+# Import from the main prophet module
+from modules.prophet_module import ProphetForecastResult
 
 class TestProphetDiagnosticConfig:
     """Test diagnostic configuration"""

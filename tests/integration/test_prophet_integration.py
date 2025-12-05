@@ -13,7 +13,7 @@ import os
 # Add project root to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from modules.prophet_module import run_prophet_forecast, create_prophet_forecast_chart
+from modules.prophet_module import run_prophet_forecast, create_prophet_plots
 from tests.conftest import TestDataValidator, PerformanceBenchmark
 
 class TestProphetModuleIntegration:
@@ -151,8 +151,8 @@ class TestProphetModuleIntegration:
         )
         assert forecast_df.empty
     
-    def test_create_prophet_forecast_chart_integration(self, sample_time_series):
-        """Test forecast chart creation integration"""
+    def test_create_prophet_plots_integration(self, sample_time_series):
+        """Test forecast plots creation integration"""
         # This would require a fitted Prophet model, so we'll test the interface
         # In a real scenario, this would be called after run_prophet_forecast
         
@@ -167,7 +167,7 @@ class TestProphetModuleIntegration:
         
         # Test that the function exists and can be called
         # (Would need actual fitted model for full test)
-        assert callable(create_prophet_forecast_chart)
+        assert callable(create_prophet_plots)
 
 class TestProphetModulePerformance:
     """Performance tests for Prophet module integration"""
